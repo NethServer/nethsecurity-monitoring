@@ -1,9 +1,9 @@
 target "base" {
     cache-from = [
-        "type=gha"
+        { type = "gha" }
     ]
     cache-to = [
-        "type=gha,mode=max"
+        { type = "gha", mode = "max" }
     ]
 }
 
