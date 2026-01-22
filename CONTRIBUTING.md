@@ -23,7 +23,6 @@ By participating in this project, you agree to maintain a respectful and collabo
 
 - **Go**: Version 1.23.12 or later
 - **golangci-lint**: For code quality checks
-- **Docker**: For containerized builds (optional)
 
 ### Clone the Repository
 
@@ -40,34 +39,36 @@ go mod download
 
 ## Building the Project
 
-### Local Build
+### Using Make
+
+The project includes a Makefile for easy building:
 
 ```bash
-go build -o ns-flows
+# Build the project
+make build
+
+# Run tests and build
+make
+
+# Run only tests
+make test
+
+# Clean build artifacts
+make clean
+
+# Format code
+make fmt
+
+# Run linter
+make lint
 ```
-
-### Docker Build
-
-You can leverage the docker image to build the project:
-
-```bash
-docker buildx bake dist
-```
-
-This will output the binary as you would expect if you ran `go build`.
 
 ## Running Tests
 
-Run the test suite with coverage:
+### Using Make
 
 ```bash
-go test -v --cover ./...
-```
-
-To run tests for a specific package:
-
-```bash
-go test -v --cover ./flows
+make test
 ```
 
 ## Code Quality
@@ -76,15 +77,14 @@ This project uses [golangci-lint](https://golangci-lint.run/) for maintaining co
 
 ### Running the Linter
 
-```bash
-golangci-lint run
-```
-
-### Code Formatting
+Using Make:
 
 ```bash
-golangci-lint fmt
+make lint
+make format
 ```
+
+Or directly:
 
 ## Making Changes
 

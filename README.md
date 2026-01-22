@@ -19,15 +19,20 @@ ns-flows -socket /var/run/netifyd/flows.sock -log-level info
 
 ## Building
 
-### Using Docker
+### Using Make
 
 ```bash
-docker buildx bake dist
-```
+# Build the project
+make build
 
-### Using Go
-```bash
-go build -o ns-flows
+# Run tests
+make test
+
+# Build and test (default)
+make
+
+# Clean build artifacts
+make clean
 ```
 
 ## License
