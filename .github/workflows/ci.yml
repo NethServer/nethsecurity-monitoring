@@ -1,15 +1,17 @@
 name: CI/CD
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   workflow_dispatch:
 
 jobs:
   golangci:
-    name: lint
+    name: Linter
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -18,8 +20,24 @@ jobs:
           go-version: stable
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
+  conventional_commits:
+    name: Conventional Commits
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
+      - name: Check PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE" | npx commitlint
   test:
-    name: test
+    name: Test
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -28,7 +46,7 @@ jobs:
         with:
           targets: test
   build:
-    name: build
+    name: Build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
