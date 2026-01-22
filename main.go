@@ -30,7 +30,11 @@ func main() {
 	flag.StringVar(&debugLevel, "log-level", "info", "Log level")
 
 	var outFile string
-	flag.StringVar(&outFile, "outfile", "/var/run/netifyd/flows.json", "Path to the output file for flows",
+	flag.StringVar(
+		&outFile,
+		"outfile",
+		"/var/run/netifyd/flows.json",
+		"Path to the output file for flows",
 	)
 
 	flag.Parse()
@@ -56,7 +60,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to socket: %v", err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	processor := flows.NewFlowProcessor()
 
