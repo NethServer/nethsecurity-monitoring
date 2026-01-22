@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches-ignore:
+    branches:
       - main
   pull_request:
   workflow_dispatch:
