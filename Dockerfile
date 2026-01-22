@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.23.12-alpine AS base
+FROM --platform=$BUILDPLATFORM golang:1.25.6-alpine AS base
 WORKDIR /app
 COPY go.mod .
 COPY flows flows

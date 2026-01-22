@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>NethServer/.github:base",
+    ":prHourlyLimitNone",
+    ":automergeMinor"
+  ],
+  "packageRules": [
+    {
+      "description": "Golang will determined by OpenWRT, this update is merely to keep the project up to date.",
+      "matchPackageNames": [
+        "golang"
+      ],
+      "schedule": [
+        "* * 1 * *"
+      ]
+    }
+  ]
+}
