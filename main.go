@@ -29,6 +29,14 @@ func main() {
 	var debugLevel string
 	flag.StringVar(&debugLevel, "log-level", "info", "Log level")
 
+	var outFile string
+	flag.StringVar(
+		&outFile,
+		"outfile",
+		"/var/run/netifyd/flows.json",
+		"Path to the output file for flows",
+	)
+
 	flag.Parse()
 
 	var logLevel slog.Level
@@ -73,7 +81,7 @@ func main() {
 			slog.Error("Failed to marshal flows", "error", err)
 			return
 		}
-		err = os.WriteFile("/var/run/netifyd/flows.json", data, 0o644)
+		err = os.WriteFile(outFile, data, 0o644)
 		if err != nil {
 			slog.Error("Failed to save flows", "error", err)
 		}
