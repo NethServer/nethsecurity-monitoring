@@ -88,7 +88,7 @@ func main() {
 	}).Run()
 
 	NewTask(ctx, "prune", 10*time.Second, func() {
-		processor.PurgeFlowsOlderThan(5 * time.Minute)
+		processor.PurgeFlowsOlderThan(1 * time.Minute)
 	}).Run()
 
 	go func() {

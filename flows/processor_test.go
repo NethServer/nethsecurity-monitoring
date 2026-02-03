@@ -146,7 +146,7 @@ func TestFlowsProcessor(t *testing.T) {
 			{startedFlow, 1},
 			{completedFlow, 1},
 			{createFlowStartEvent(t), 2},
-			{flowPurge, 2},
+			{flowPurge, 1},
 		}
 
 		flowProcessor := NewFlowProcessor()
@@ -250,6 +250,42 @@ func TestFlowsProcessor(t *testing.T) {
 			completedFlowUpdate.Flow.(FlowStats).OtherRate,
 			"OtherRate",
 		)
+	})
+
+	t.Run("prunes flows correctly", func(t *testing.T) {
+		startedFlow := createFlowStartEvent(t)
+		completedFlow := createFlowCompleteEvent(t)
+		pruneCompletedFlow := FlowEvent{
+			Type: FlowTypePurge,
+			Flow: FlowPurge{
+				FlowBase: completedFlow.Flow.(FlowComplete).FlowBase,
+			},
+		}
+		pruneStartedFlow := FlowEvent{
+			Type: FlowTypePurge,
+			Flow: FlowPurge{
+				FlowBase: startedFlow.Flow.(FlowStart).FlowBase,
+			},
+		}
+		flowProcessor := NewFlowProcessor()
+		flowProcessor.Process(startedFlow)
+		flowProcessor.Process(completedFlow)
+		flowProcessor.Process(pruneCompletedFlow)
+		events := flowProcessor.GetEvents()
+		if len(events) != 1 {
+			t.Errorf("Expected 1 events, got %d", len(events))
+		}
+		flowProcessor.Process(pruneStartedFlow)
+		events = flowProcessor.GetEvents()
+		if len(events) != 0 {
+			t.Errorf("Expected 0 events, got %d", len(events))
+		}
+		// Prune again to ensure no panic on the unknown flow
+		flowProcessor.Process(pruneCompletedFlow)
+		events = flowProcessor.GetEvents()
+		if len(events) != 0 {
+			t.Errorf("Expected 0 events, got %d", len(events))
+		}
 	})
 
 	t.Run("stats for unknown flow", func(t *testing.T) {
