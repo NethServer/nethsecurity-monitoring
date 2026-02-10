@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,6 +36,14 @@ func main() {
 		"outfile",
 		"/var/run/netifyd/flows.json",
 		"Path to the output file for flows",
+	)
+
+	var expiredPersistence time.Duration
+	flag.DurationVar(
+		&expiredPersistence,
+		"expired-persistence",
+		60*time.Second,
+		"Purge expired flows older than this duration",
 	)
 
 	flag.Parse()
@@ -67,9 +76,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	var wg sync.WaitGroup
+
 	slog.Info("Starting flow processing")
 
-	NewTask(ctx, "save", 10*time.Second, func() {
+	NewTask(ctx, &wg, "save", 10*time.Second, func() {
 		events := processor.GetEvents()
 		currentFlows := make([]any, 0, len(events))
 
@@ -87,11 +98,13 @@ func main() {
 		}
 	}).Run()
 
-	NewTask(ctx, "prune", 10*time.Second, func() {
-		processor.PurgeFlowsOlderThan(1 * time.Minute)
+	NewTask(ctx, &wg, "prune", 10*time.Second, func() {
+		processor.PurgeFlowsOlderThan(expiredPersistence)
 	}).Run()
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		decoder := json.NewDecoder(conn)
 		for {
 			select {
@@ -117,4 +130,6 @@ func main() {
 
 	<-ctx.Done()
 	stop()
+	wg.Wait()
+	slog.Info("All processes completed, exiting")
 }
