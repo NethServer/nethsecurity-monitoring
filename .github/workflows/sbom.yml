@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Generate sarif
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Generate SBOM
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
