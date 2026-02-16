@@ -10,11 +10,30 @@ NethSecurity Monitoring is a suite of monitoring binaries built in Go that work 
 
 ### ns-flows
 
-Reads network flow data from netifyd's Unix socket and produces a JSON file (`/var/run/netifyd/flows.json`) containing current flow state.
+Reads network flow data from netifyd's Unix socket and produces a JSON file (`/var/run/netifyd/flows.json`) containing current flow state. Additionally, exposes a REST API for real-time flow data access.
 
 **Usage:**
 ```bash
-ns-flows -socket /var/run/netifyd/flows.sock -log-level info
+ns-flows -socket /var/run/netifyd/flows.sock -log-level info -http-addr 127.0.0.1:19000
+```
+
+**Options:**
+- `-socket`: Path to the netifyd Unix socket (default: `/var/run/netifyd/flows.sock`)
+- `-outfile`: Path to the output JSON file (default: `/var/run/netifyd/flows.json`)
+- `-log-level`: Logging level: debug, info, warn, error (default: `info`)
+- `-http-addr`: HTTP server address for API (default: `127.0.0.1:19000`)
+
+**API Endpoints:**
+
+- `GET /flows` - Returns the current list of active network flows as a JSON array
+
+**Example:**
+```bash
+# Query current flows
+curl http://127.0.0.1:19000/flows
+
+# Paginated query with limit and offset
+curl "http://127.0.0.1:19000/flows?start=0&end=10"
 ```
 
 ## Building
