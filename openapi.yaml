@@ -1,0 +1,508 @@
+openapi: 3.0.3
+info:
+  title: NethSecurity Flows API
+  description: |
+    REST API exposed by the `ns-flows` daemon. It provides a paginated,
+    sortable view of active network flows collected from netifyd and enriched
+    with nDPI Deep Packet Inspection metadata.
+
+    The API is served over **HTTP bound to 127.0.0.1** only (loopback
+    interface). The default port is `8080`, configurable via the `--api-port`
+    flag. Example:
+
+    ```bash
+    curl 'http://127.0.0.1:8080/flows?per_page=20&sort_by=download_rate&desc=true'
+    ```
+  version: 1.0.0
+  license:
+    name: GNU General Public License v3.0
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: |
+      HTTP server bound to 127.0.0.1 on the port configured by `--api-port`
+      (default: `8080`).
+
+paths:
+  /flows:
+    get:
+      summary: List active network flows
+      description: |
+        Returns a paginated, sorted list of all active network flows currently
+        held in the in-memory store. Flows are keyed by their nDPI digest and
+        include connection metadata, DPI application/protocol names, risk
+        scores, and byte/packet counters where available.
+      operationId: listFlows
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-based).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          description: Number of flows to return per page.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: sort_by
+          in: query
+          description: |
+            Field to sort flows by.
+
+            | Value | Description |
+            |---|---|
+            | `duration` | Elapsed time since the flow was first seen (ms) |
+            | `last_seen_at` | Unix millisecond timestamp of the last activity |
+            | `download_rate` | Bytes/s toward the local host |
+            | `upload_rate` | Bytes/s from the local host |
+
+            Flows without the requested metric (e.g. bare `flow` events for
+            rate-based sorts) are placed last, tiebroken ascending by digest.
+          required: false
+          schema:
+            type: string
+            enum:
+              - duration
+              - last_seen_at
+              - download_rate
+              - upload_rate
+            default: download_rate
+        - name: desc
+          in: query
+          description: When `true`, sort in descending order.
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Paginated list of active flows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowsResponse"
+              examples:
+                typical:
+                  summary: Two flows, first page
+                  value:
+                    flows:
+                      - type: flow_dpi_complete
+                        interface: eth0
+                        internal: true
+                        flow:
+                          digest: "a1b2c3d4e5f6"
+                          conntrack:
+                            id: 12345
+                          detected_application_name: YouTube
+                          detected_protocol_name: TLS
+                          first_seen_at: 1708200000000
+                          last_seen_at: 1708200060000
+                          local_ip: "192.168.1.10"
+                          local_mac: "aa:bb:cc:dd:ee:ff"
+                          local_origin: true
+                          local_port: 54321
+                          other_ip: "142.250.80.46"
+                          other_mac: ""
+                          other_port: 443
+                          other_type: "remote"
+                          host_server_name: "youtube.com"
+                          risks:
+                            ndpi_risk_score: 0
+                            ndpi_risk_score_client: 0
+                            ndpi_risk_score_server: 0
+                          local_bytes: 8192
+                          local_packets: 40
+                          local_rate: 136.5
+                          other_bytes: 204800
+                          other_packets: 150
+                          other_rate: 3413.3
+                          total_bytes: 212992
+                          total_packets: 190
+                          ssl:
+                            client_sni: "youtube.com"
+                    per_page: 10
+                    total: 2
+                    current_page: 1
+                    last_page: 1
+        "400":
+          description: One or more query parameters failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "invalid query parameters: Key: 'queryParams.PerPage' Error:Field validation for 'PerPage' failed on the 'max' tag"
+
+components:
+  schemas:
+
+    # -------------------------------------------------------------------------
+    # Response wrappers
+    # -------------------------------------------------------------------------
+
+    FlowsResponse:
+      type: object
+      description: Paginated list of flow events.
+      required:
+        - flows
+        - per_page
+        - total
+        - current_page
+        - last_page
+      properties:
+        flows:
+          type: array
+          description: Slice of flow events for the requested page.
+          items:
+            $ref: "#/components/schemas/FlowEvent"
+        per_page:
+          type: integer
+          description: Number of items per page (as requested).
+          example: 10
+        total:
+          type: integer
+          description: Total number of active flows across all pages.
+          example: 42
+        current_page:
+          type: integer
+          description: The page number returned (1-based).
+          example: 1
+        last_page:
+          type: integer
+          description: Index of the last available page.
+          example: 5
+
+    ErrorResponse:
+      type: object
+      description: Returned on validation or parsing errors.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable description of what went wrong.
+          example: "invalid query parameters: ..."
+
+    # -------------------------------------------------------------------------
+    # Flow event envelope
+    # -------------------------------------------------------------------------
+
+    FlowEvent:
+      type: object
+      description: |
+        Envelope wrapping one of the four concrete flow types. The `type`
+        field acts as a discriminator; the shape of `flow` varies accordingly.
+      required:
+        - type
+        - flow
+      properties:
+        type:
+          type: string
+          description: Event type; determines the schema of the `flow` field.
+          enum:
+            - flow
+            - flow_dpi_complete
+            - flow_dpi_update
+            - flow_stats
+            - flow_purge
+        interface:
+          type: string
+          description: Network interface name on which the flow was observed.
+          example: eth0
+        internal:
+          type: boolean
+          description: |
+            `true` when both endpoints are on internal (LAN-side) interfaces.
+          example: false
+        reason:
+          type: string
+          description: Optional reason string supplied for purge events.
+          example: timeout
+        flow:
+          description: |
+            Concrete flow payload. The shape depends on `type`:
+
+            | `type` value | Schema |
+            |---|---|
+            | `flow` | `FlowStart` |
+            | `flow_dpi_complete` | `FlowComplete` |
+            | `flow_dpi_update` | `FlowComplete` |
+            | `flow_stats` | `FlowStats` |
+            | `flow_purge` | `FlowPurge` |
+          oneOf:
+            - $ref: "#/components/schemas/FlowStart"
+            - $ref: "#/components/schemas/FlowComplete"
+            - $ref: "#/components/schemas/FlowStats"
+            - $ref: "#/components/schemas/FlowPurge"
+          discriminator:
+            propertyName: type
+            mapping:
+              flow: "#/components/schemas/FlowStart"
+              flow_dpi_complete: "#/components/schemas/FlowComplete"
+              flow_dpi_update: "#/components/schemas/FlowComplete"
+              flow_stats: "#/components/schemas/FlowStats"
+              flow_purge: "#/components/schemas/FlowPurge"
+
+    # -------------------------------------------------------------------------
+    # Shared sub-schemas
+    # -------------------------------------------------------------------------
+
+    Conntrack:
+      type: object
+      description: Linux conntrack entry associated with the flow.
+      required:
+        - id
+      properties:
+        id:
+          type: integer
+          description: Conntrack entry ID.
+          example: 12345
+
+    Risks:
+      type: object
+      description: nDPI risk scores for the flow.
+      required:
+        - ndpi_risk_score
+        - ndpi_risk_score_client
+        - ndpi_risk_score_server
+      properties:
+        ndpi_risk_score:
+          type: integer
+          description: Aggregate nDPI risk score.
+          example: 0
+        ndpi_risk_score_client:
+          type: integer
+          description: Client-side nDPI risk score.
+          example: 0
+        ndpi_risk_score_server:
+          type: integer
+          description: Server-side nDPI risk score.
+          example: 0
+        risks:
+          type: array
+          description: List of individual nDPI risk identifiers.
+          items:
+            type: integer
+          example: [4, 22]
+
+    Stats:
+      type: object
+      description: Byte and packet counters for a flow, split by direction.
+      required:
+        - local_bytes
+        - local_packets
+        - local_rate
+        - other_bytes
+        - other_packets
+        - other_rate
+        - total_bytes
+        - total_packets
+      properties:
+        local_bytes:
+          type: integer
+          format: int64
+          description: Cumulative bytes sent from/to the local endpoint.
+          example: 8192
+        local_packets:
+          type: integer
+          description: Cumulative packets from/to the local endpoint.
+          example: 40
+        local_rate:
+          type: number
+          format: double
+          description: Current transfer rate (bytes/s) for the local endpoint.
+          example: 136.5
+        other_bytes:
+          type: integer
+          format: int64
+          description: Cumulative bytes sent from/to the remote endpoint.
+          example: 204800
+        other_packets:
+          type: integer
+          description: Cumulative packets from/to the remote endpoint.
+          example: 150
+        other_rate:
+          type: number
+          format: double
+          description: Current transfer rate (bytes/s) for the remote endpoint.
+          example: 3413.3
+        total_bytes:
+          type: integer
+          format: int64
+          description: Total bytes transferred in both directions.
+          example: 212992
+        total_packets:
+          type: integer
+          description: Total packets transferred in both directions.
+          example: 190
+
+    SslInfo:
+      type: object
+      description: TLS/SSL metadata extracted by nDPI.
+      properties:
+        client_sni:
+          type: string
+          description: TLS Server Name Indication extracted from the ClientHello.
+          example: youtube.com
+
+    # -------------------------------------------------------------------------
+    # Concrete flow types
+    # -------------------------------------------------------------------------
+
+    FlowBase:
+      type: object
+      description: Fields common to every flow type.
+      required:
+        - digest
+      properties:
+        digest:
+          type: string
+          description: |
+            Unique identifier for the flow computed by nDPI. Used as the
+            in-memory store key. Stable for the lifetime of a connection.
+          example: a1b2c3d4e5f6
+
+    FlowStart:
+      allOf:
+        - $ref: "#/components/schemas/FlowBase"
+      description: |
+        Initial flow metadata emitted when a new connection is first observed
+        (`type: flow`). Does not yet contain DPI stats or byte counters.
+      required:
+        - conntrack
+        - detected_application_name
+        - detected_protocol_name
+        - first_seen_at
+        - last_seen_at
+        - local_ip
+        - local_mac
+        - local_origin
+        - local_port
+        - other_ip
+        - other_mac
+        - other_port
+        - other_type
+        - risks
+      properties:
+        conntrack:
+          $ref: "#/components/schemas/Conntrack"
+        detected_application_name:
+          type: string
+          description: Application name identified by nDPI (e.g. `YouTube`).
+          example: YouTube
+        detected_protocol_name:
+          type: string
+          description: Protocol name identified by nDPI (e.g. `TLS`).
+          example: TLS
+        first_seen_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (milliseconds) when the flow was first seen.
+          example: 1708200000000
+        last_seen_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (milliseconds) of the most recent activity.
+          example: 1708200060000
+        local_ip:
+          type: string
+          description: IP address of the local (LAN-side) endpoint.
+          example: 192.168.1.10
+        local_mac:
+          type: string
+          description: MAC address of the local endpoint.
+          example: "aa:bb:cc:dd:ee:ff"
+        local_origin:
+          type: boolean
+          description: |
+            `true` when the local host initiated the connection. Affects
+            the semantic interpretation of `download_rate` and `upload_rate`
+            sort keys:
+            - `local_origin = true` → download = `other_rate`, upload = `local_rate`
+            - `local_origin = false` → download = `local_rate`, upload = `other_rate`
+          example: true
+        local_port:
+          type: integer
+          description: TCP/UDP port of the local endpoint.
+          example: 54321
+        other_ip:
+          type: string
+          description: IP address of the remote endpoint.
+          example: 142.250.80.46
+        other_mac:
+          type: string
+          description: MAC address of the remote endpoint (may be empty for WAN hosts).
+          example: ""
+        other_port:
+          type: integer
+          description: TCP/UDP port of the remote endpoint.
+          example: 443
+        other_type:
+          type: string
+          description: Classification of the remote endpoint (e.g. `remote`, `local`).
+          example: remote
+        host_server_name:
+          type: string
+          description: Hostname extracted from application-layer data (e.g. HTTP Host header).
+          example: youtube.com
+        dns_host_name:
+          type: string
+          description: Hostname resolved via DNS for the remote IP, if available.
+          example: youtube.com
+        risks:
+          $ref: "#/components/schemas/Risks"
+
+    FlowComplete:
+      allOf:
+        - $ref: "#/components/schemas/FlowStart"
+        - $ref: "#/components/schemas/Stats"
+      description: |
+        DPI-enriched flow emitted after `flow_dpi_complete` or
+        `flow_dpi_update`. Extends `FlowStart` with full byte/packet counters
+        and optional TLS/SSL metadata. This entry replaces the corresponding
+        `FlowStart` in the store.
+      properties:
+        detection_guessed:
+          type: boolean
+          description: |
+            `true` when nDPI could not fully classify the flow and the
+            protocol/application names are a best-guess.
+          example: false
+        detection_packets:
+          type: integer
+          description: Number of packets used by nDPI to reach its classification.
+          example: 4
+        ssl:
+          $ref: "#/components/schemas/SslInfo"
+
+    FlowStats:
+      allOf:
+        - $ref: "#/components/schemas/FlowBase"
+        - $ref: "#/components/schemas/Stats"
+      description: |
+        Incremental counter update for an existing flow (`type: flow_stats`).
+        Only contains the digest, updated counters, and `last_seen_at`.
+        Merged into the existing entry in the store rather than replacing it.
+      required:
+        - last_seen_at
+      properties:
+        last_seen_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (milliseconds) of the most recent activity.
+          example: 1708200090000
+
+    FlowPurge:
+      allOf:
+        - $ref: "#/components/schemas/FlowBase"
+      description: |
+        Signals that a flow has ended and should be removed from the store
+        (`type: flow_purge`). Contains only the digest.

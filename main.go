@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"maps"
 	"net"
 	"os"
 	"os/signal"
@@ -15,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
 )
 
@@ -24,18 +25,18 @@ func main() {
 		&socketPath,
 		"socket",
 		"/var/run/netifyd/flows.sock",
-		"Path to the socket to listen on",
+		"Path to the netifyd Unix socket to read flow events from",
 	)
 
 	var debugLevel string
-	flag.StringVar(&debugLevel, "log-level", "info", "Log level")
+	flag.StringVar(&debugLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 
-	var outFile string
+	var apiPort string
 	flag.StringVar(
-		&outFile,
-		"outfile",
-		"/var/run/netifyd/flows.json",
-		"Path to the output file for flows",
+		&apiPort,
+		"api-port",
+		"8080",
+		"TCP port the HTTP API server listens on (bound to 127.0.0.1)",
 	)
 
 	var expiredPersistence time.Duration
@@ -67,40 +68,37 @@ func main() {
 
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		log.Fatalf("Failed to connect to socket: %v", err)
+		log.Fatalf("Failed to connect to netifyd socket: %v", err)
 	}
 	defer conn.Close() //nolint:errcheck
 
 	processor := flows.NewFlowProcessor()
+
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	api.NewFlowApi(processor).Setup(app)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	var wg sync.WaitGroup
 
-	slog.Info("Starting flow processing")
-
-	NewTask(ctx, &wg, "save", 10*time.Second, func() {
-		events := processor.GetEvents()
-		currentFlows := make([]any, 0, len(events))
-
-		for e := range maps.Values(events) {
-			currentFlows = append(currentFlows, e)
+	// Start the HTTP API server on 127.0.0.1 only.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		addr := "127.0.0.1:" + apiPort
+		slog.Info("API server listening", "addr", addr)
+		if err := app.Listen(addr); err != nil {
+			// app.Shutdown() causes Listen to return a non-nil error; ignore it.
+			slog.Debug("API server stopped", "error", err)
 		}
-		data, err := json.Marshal(currentFlows)
-		if err != nil {
-			slog.Error("Failed to marshal flows", "error", err)
-			return
-		}
-		err = os.WriteFile(outFile, data, 0o644)
-		if err != nil {
-			slog.Error("Failed to save flows", "error", err)
-		}
-	}).Run()
+	}()
 
 	NewTask(ctx, &wg, "prune", 10*time.Second, func() {
 		processor.PurgeFlowsOlderThan(expiredPersistence)
 	}).Run()
+
+	slog.Info("Starting flow processing")
 
 	wg.Add(1)
 	go func() {
@@ -130,6 +128,12 @@ func main() {
 
 	<-ctx.Done()
 	stop()
+
+	slog.Info("Shutting down API server")
+	if err := app.Shutdown(); err != nil {
+		slog.Error("API server shutdown error", "error", err)
+	}
+
 	wg.Wait()
 	slog.Info("All processes completed, exiting")
 }
