@@ -126,6 +126,16 @@ chore(deps): update golang to 1.23.13
 - Keep functions focused and reasonably sized
 - Use thread-safe patterns when dealing with concurrent access
 
+### API Changes
+
+Whenever you add or modify an HTTP endpoint or its query parameters, **update [openapi.yaml](openapi.yaml) in the same PR** as the corresponding changes to [api/flows.go](api/flows.go). Keep the following in sync:
+
+- Query parameter names, types, defaults, and validation constraints
+- Response body schemas (add or extend `components/schemas` entries as needed)
+- `SortBy` enum values — any new value added to `flows/sort.go` and the `validate:"oneof=…"` tag in `api/flows.go` must also appear in the `sort_by` parameter enum in `openapi.yaml`
+
+PRs that change the API surface without updating `openapi.yaml` will be rejected.
+
 ### Testing
 
 - Write tests for new features and bug fixes

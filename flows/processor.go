@@ -11,6 +11,10 @@ type FlowProcessor struct {
 	mu       sync.RWMutex
 }
 
+type FlowAccessor interface {
+	GetEvents() map[string]FlowEvent
+}
+
 func NewFlowProcessor() *FlowProcessor {
 	return &FlowProcessor{
 		eventMap: make(map[string]FlowEvent),
