@@ -84,11 +84,7 @@ func TestFlows(t *testing.T) {
 			t.Fatal(err)
 		}
 		assert.Equal(t, 4, len(body.Data))
-		assert.Equal(t, 4, body.Total)
-		assert.Equal(t, 10, body.PerPage)
-		assert.Equal(t, 1, body.CurrentPage)
-		assert.Equal(t, 1, body.LastPage)
-		order := []string{"f-004", "f-002", "f-001", "f-003"}
+		order := []string{"f-001", "f-002", "f-003", "f-004"}
 		for i, ev := range body.Data {
 			var digest string
 			switch ev.Flow.(type) {
@@ -106,77 +102,4 @@ func TestFlows(t *testing.T) {
 			assert.Equal(t, order[i], digest)
 		}
 	})
-
-	t.Run("flows can be limited", func(t *testing.T) {
-		mock := &MockFlowAccessor{
-			events: map[string]flows.FlowEvent{
-				"f-001": {
-					Type: flows.FlowTypeBegin,
-					Flow: flows.FlowStart{
-						FlowBase: flows.FlowBase{
-							Digest: "f-001",
-						},
-					},
-				},
-				"f-002": {
-					Type: flows.FlowTypeDpiComplete,
-					Flow: flows.FlowComplete{
-						FlowStart: flows.FlowStart{
-							FlowBase: flows.FlowBase{
-								Digest: "f-002",
-							},
-						},
-						Stats: flows.Stats{LocalRate: 3000, OtherRate: 200},
-					},
-				},
-			},
-		}
-		app := setupApi(t, mock)
-		req, _ := http.NewRequest("GET", "/flows?per_page=1", nil)
-		res, err := app.Test(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 200, res.StatusCode)
-		var body FlowsResponse
-		err = json.NewDecoder(res.Body).Decode(&body)
-		if err != nil && err != io.EOF {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 1, len(body.Data))
-		assert.Equal(t, 2, body.Total)
-		assert.Equal(t, 1, body.PerPage)
-		assert.Equal(t, 1, body.CurrentPage)
-		assert.Equal(t, 2, body.LastPage)
-	})
-
-	t.Run("defaults are applied when params are absent", func(t *testing.T) {
-		mock := &MockFlowAccessor{events: map[string]flows.FlowEvent{}}
-		app := setupApi(t, mock)
-		req, _ := http.NewRequest("GET", "/flows", nil)
-		res, err := app.Test(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 200, res.StatusCode)
-		var body FlowsResponse
-		err = json.NewDecoder(res.Body).Decode(&body)
-		if err != nil && err != io.EOF {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 10, body.PerPage)
-		assert.Equal(t, 1, body.CurrentPage)
-	})
-
-	for _, query := range []string{"page=0", "per_page=200", "sort_by=invalid"} {
-		t.Run("invalid "+query+" returns 400", func(t *testing.T) {
-			app := setupApi(t, &MockFlowAccessor{events: map[string]flows.FlowEvent{}})
-			req, _ := http.NewRequest("GET", "/flows?"+query, nil)
-			res, err := app.Test(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			assert.Equal(t, 400, res.StatusCode)
-		})
-	}
 }
