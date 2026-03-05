@@ -17,7 +17,7 @@ Reads network flow data from netifyd's Unix socket, maintains an in-memory store
 ```bash
 ns-flows \
   --socket /var/run/netifyd/flows.sock \
-  --api-socket /var/run/nethsecurity-monitoring/flows.sock \
+  --api-port 8080 \
   --expired-persistence 60s \
   --log-level info
 ```
@@ -25,7 +25,7 @@ ns-flows \
 | Flag | Default | Description |
 |---|---|---|
 | `--socket` | `/var/run/netifyd/flows.sock` | Unix socket path for netifyd input |
-| `--api-socket` | `/var/run/nethsecurity-monitoring/flows.sock` | Unix socket the HTTP API listens on |
+| `--api-port` | `8080` | TCP port the HTTP API server listens on (bound to 127.0.0.1) |
 | `--expired-persistence` | `60s` | TTL for flows not seen within this window |
 | `--log-level` | `info` | One of `debug`, `info`, `warn`, `error` |
 
@@ -33,13 +33,12 @@ ns-flows \
 
 ## API
 
-The HTTP API is served over the Unix socket specified by `--api-socket`. The full API specification — including all endpoints, query parameters, request/response schemas, and examples — is documented in [openapi.yaml](openapi.yaml).
+The HTTP API is served over TCP on `127.0.0.1:{api-port}`. The full API specification — including all endpoints, query parameters, request/response schemas, and examples — is documented in [openapi.yaml](openapi.yaml).
 
 Quick example:
 
 ```bash
-curl --unix-socket /var/run/nethsecurity-monitoring/flows.sock \
-  'http://localhost/flows?per_page=20&sort_by=download_rate&desc=true'
+curl 'http://127.0.0.1:8080/flows?per_page=20&sort_by=download_rate&desc=true'
 ```
 
 ## Building
