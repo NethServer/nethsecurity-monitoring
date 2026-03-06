@@ -323,8 +323,15 @@ func TestParsingFlow(t *testing.T) {
 				f := flow.(FlowStart)
 				assertEqual(t, f.Conntrack.Id, 2246304405, "Conntrack.Id")
 				assertEqual(t, f.Digest, "ff77f56330b3037b0d4925047789bb77cadbd4bc", "Digest")
-				assertEqual(t, f.DetectedApplication, "netify.example-app", "DetectedApplication")
-				assertEqual(t, f.DetectedProtocol, "HTTP/S", "DetectedProtocol")
+				assertEqual(t, f.DetectedApplication, 11153, "DetectedApplication")
+				assertEqual(
+					t,
+					f.DetectedApplicationName,
+					"netify.example-app",
+					"DetectedApplicationName",
+				)
+				assertEqual(t, f.DetectedProtocol, 196, "DetectedProtocol")
+				assertEqual(t, f.DetectedProtocolName, "HTTP/S", "DetectedProtocolName")
 				assertEqual(t, f.FirstSeenAt, int64(1765892953385), "FirstSeenAt")
 				assertEqual(t, f.LastSeenAt, int64(1765892953405), "LastSeenAt")
 				assertEqual(t, f.LocalIp, "192.168.1.100", "LocalIp")
@@ -354,11 +361,12 @@ func TestParsingFlow(t *testing.T) {
 				assertEqual(t, f.Digest, "6036f2d3ecb8217f4f3ed8eb23ed295c54c628d1", "Digest")
 				assertEqual(
 					t,
-					f.DetectedApplication,
+					f.DetectedApplicationName,
 					"netify.video-streaming",
-					"DetectedApplication",
+					"DetectedApplicationName",
 				)
-				assertEqual(t, f.DetectedProtocol, "QUIC", "DetectedProtocol")
+				assertEqual(t, f.DetectedProtocolName, "QUIC", "DetectedProtocolName")
+				assertEqual(t, f.DetectedProtocol, 188, "DetectedProtocol")
 				assertEqual(t, f.FirstSeenAt, int64(1765893713856), "FirstSeenAt")
 				assertEqual(t, f.LastSeenAt, int64(1765893713860), "LastSeenAt")
 				assertEqual(t, f.LocalIp, "192.168.1.100", "LocalIp")
@@ -395,8 +403,15 @@ func TestParsingFlow(t *testing.T) {
 				f := flow.(FlowComplete)
 				assertEqual(t, f.Conntrack.Id, 163461572, "Conntrack.Id")
 				assertEqual(t, f.Digest, "c3d4e5f6a7b890123456789012345678abcdef01", "Digest")
-				assertEqual(t, f.DetectedApplication, "netify.cloud-service", "DetectedApplication")
-				assertEqual(t, f.DetectedProtocol, "QUIC", "DetectedProtocol")
+				assertEqual(
+					t,
+					f.DetectedApplicationName,
+					"netify.cloud-service",
+					"DetectedApplicationName",
+				)
+				assertEqual(t, f.DetectedApplication, 10733, "DetectedApplication")
+				assertEqual(t, f.DetectedProtocol, 188, "DetectedProtocol")
+				assertEqual(t, f.DetectedProtocolName, "QUIC", "DetectedProtocolName")
 				assertEqual(t, f.FirstSeenAt, int64(1765893622750), "FirstSeenAt")
 				assertEqual(t, f.LastSeenAt, int64(1765893622753), "LastSeenAt")
 				assertEqual(t, f.LocalIp, "192.168.1.100", "LocalIp")

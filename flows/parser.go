@@ -43,22 +43,24 @@ type FlowBase struct {
 
 type FlowStart struct {
 	FlowBase
-	Conntrack           Conntrack `json:"conntrack"`
-	DetectedApplication string    `json:"detected_application_name"`
-	DetectedProtocol    string    `json:"detected_protocol_name"`
-	FirstSeenAt         int64     `json:"first_seen_at"`
-	LastSeenAt          int64     `json:"last_seen_at"`
-	LocalIp             string    `json:"local_ip"`
-	LocalMac            string    `json:"local_mac"`
-	LocalOrigin         bool      `json:"local_origin"`
-	LocalPort           int       `json:"local_port"`
-	OtherIp             string    `json:"other_ip"`
-	OtherMac            string    `json:"other_mac"`
-	OtherPort           int       `json:"other_port"`
-	OtherType           string    `json:"other_type"`
-	HostServerName      string    `json:"host_server_name,omitempty"`
-	DnsHostName         string    `json:"dns_host_name,omitempty"`
-	Risks               struct {
+	Conntrack               Conntrack `json:"conntrack"`
+	DetectedApplication     int       `json:"detected_application"`
+	DetectedApplicationName string    `json:"detected_application_name"`
+	DetectedProtocol        int       `json:"detected_protocol"`
+	DetectedProtocolName    string    `json:"detected_protocol_name"`
+	FirstSeenAt             int64     `json:"first_seen_at"`
+	LastSeenAt              int64     `json:"last_seen_at"`
+	LocalIp                 string    `json:"local_ip"`
+	LocalMac                string    `json:"local_mac"`
+	LocalOrigin             bool      `json:"local_origin"`
+	LocalPort               int       `json:"local_port"`
+	OtherIp                 string    `json:"other_ip"`
+	OtherMac                string    `json:"other_mac"`
+	OtherPort               int       `json:"other_port"`
+	OtherType               string    `json:"other_type"`
+	HostServerName          string    `json:"host_server_name,omitempty"`
+	DnsHostName             string    `json:"dns_host_name,omitempty"`
+	Risks                   struct {
 		NdpiRiskScore       int   `json:"ndpi_risk_score"`
 		NdpiRiskScoreClient int   `json:"ndpi_risk_score_client"`
 		NdpiRiskScoreServer int   `json:"ndpi_risk_score_server"`
