@@ -4,7 +4,7 @@ go 1.23.12
 
 require (
 	github.com/go-playground/assert/v2 v2.2.0
-	github.com/gofiber/fiber/v2 v2.52.11
+	github.com/gofiber/fiber/v2 v2.52.12
 )
 
 require (
