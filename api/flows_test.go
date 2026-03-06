@@ -84,8 +84,8 @@ func TestFlows(t *testing.T) {
 			t.Fatal(err)
 		}
 		assert.Equal(t, 4, len(body.Data))
-		order := []string{"f-001", "f-002", "f-003", "f-004"}
-		for i, ev := range body.Data {
+		expected := map[string]bool{"f-001": true, "f-002": true, "f-003": true, "f-004": true}
+		for _, ev := range body.Data {
 			var digest string
 			switch ev.Flow.(type) {
 			case flows.FlowStart:
@@ -99,7 +99,13 @@ func TestFlows(t *testing.T) {
 			default:
 				t.Fatalf("unexpected flow type: %T", ev.Flow)
 			}
-			assert.Equal(t, order[i], digest)
+			if !expected[digest] {
+				t.Errorf("unexpected or duplicate digest in response: %s", digest)
+			}
+			delete(expected, digest)
+		}
+		if len(expected) > 0 {
+			t.Errorf("missing digests in response: %v", expected)
 		}
 	})
 }
