@@ -59,6 +59,8 @@ func (fp *FlowProcessor) Process(event FlowEvent) {
 			flow.Flow = toUpdateFlow
 			fp.eventMap[f.Digest] = flow
 		}
+	default:
+		slog.Debug("Unknown flow event type", "type", event.Type)
 	}
 }
 

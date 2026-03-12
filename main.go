@@ -117,9 +117,10 @@ func main() {
 						return
 					}
 					if err == io.EOF {
-						log.Fatalf("Socket closed: %v", err)
+						log.Fatalf("Netifyd closed the socket.")
 					}
-					log.Fatalf("Failed to decode flow event: %v", err)
+					slog.Debug("Failed to decode flow event, continuing", "error", err)
+					continue
 				}
 				processor.Process(event)
 			}
