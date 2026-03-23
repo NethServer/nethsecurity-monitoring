@@ -29,30 +29,13 @@ func createFlowBase(t *testing.T) FlowBase {
 	}
 }
 
-func createFlowStart(t *testing.T) FlowStart {
-	t.Helper()
-	return FlowStart{
-		FlowBase: createFlowBase(t),
-	}
-}
-
-// createFlowStartEvent creates a FlowStart event with a unique digest.
-func createFlowStartEvent(t *testing.T) FlowEvent {
-	t.Helper()
-	return FlowEvent{
-		Type: FlowTypeBegin,
-		Flow: createFlowStart(t),
-	}
-}
-
 // createFlowCompleteEvent creates a FlowComplete event with a unique digest.
 func createFlowCompleteEvent(t *testing.T) FlowEvent {
 	t.Helper()
-	flowStart := createFlowStart(t)
 	return FlowEvent{
 		Type: FlowTypeDpiComplete,
 		Flow: FlowComplete{
-			FlowStart: flowStart,
+			FlowBase: createFlowBase(t),
 		},
 	}
 }
@@ -61,11 +44,10 @@ func createFlowStatsEvent(t *testing.T) FlowEvent {
 	t.Helper()
 	minRate := 1000.0
 	maxRate := 10000.0
-	flowStart := createFlowStart(t)
 	return FlowEvent{
 		Type: FlowTypeStats,
 		Flow: FlowStats{
-			FlowBase: flowStart.FlowBase,
+			FlowBase: createFlowBase(t),
 			Stats: Stats{
 				LocalBytes:   rand.Int64N(1000),
 				LocalPackets: rand.IntN(1000),
@@ -92,11 +74,7 @@ func TestFlowsProcessor(t *testing.T) {
 		for i := 0; i < wantedCount; i++ {
 			go func() {
 				defer wg.Done()
-				event := FlowEvent{
-					Type: FlowTypeBegin,
-					Flow: createFlowStart(t),
-				}
-				flowProcessor.Process(event)
+				flowProcessor.Process(createFlowCompleteEvent(t))
 			}()
 		}
 
@@ -108,34 +86,29 @@ func TestFlowsProcessor(t *testing.T) {
 		}
 	})
 
-	t.Run("save a flow start correctly", func(t *testing.T) {
-		flow := createFlowStartEvent(t)
+	t.Run("save a flow complete correctly", func(t *testing.T) {
+		flow := createFlowCompleteEvent(t)
 		flowProcessor := NewFlowProcessor()
 		flowProcessor.Process(flow)
 		events := flowProcessor.GetEvents()
 		if len(events) != 1 {
 			t.Errorf("Expected 1 event, got %d", len(events))
 		}
-		if _, ok := flow.Flow.(FlowStart); !ok {
-			t.Errorf("Expected flow to be of type FlowStart")
+		if _, ok := flow.Flow.(FlowComplete); !ok {
+			t.Errorf("Expected flow to be of type FlowComplete")
 		}
-		if _, ok := events[flow.Flow.(FlowStart).Digest]; !ok {
-			t.Errorf("Expected event with digest %s to be present", flow.Flow.(FlowStart).Digest)
+		if _, ok := events[flow.Flow.(FlowComplete).Digest]; !ok {
+			t.Errorf("Expected event with digest %s to be present", flow.Flow.(FlowComplete).Digest)
 		}
 	})
 
 	t.Run("handles flows correctly", func(t *testing.T) {
-		startedFlow := createFlowStartEvent(t)
-		completedFlow := FlowEvent{
-			Type: FlowTypeDpiComplete,
-			Flow: FlowComplete{
-				FlowStart: startedFlow.Flow.(FlowStart),
-			},
-		}
+		flowComplete1 := createFlowCompleteEvent(t)
+		flowComplete2 := createFlowCompleteEvent(t)
 		flowPurge := FlowEvent{
 			Type: FlowTypePurge,
 			Flow: FlowPurge{
-				FlowBase: startedFlow.Flow.(FlowStart).FlowBase,
+				FlowBase: flowComplete1.Flow.(FlowComplete).FlowBase,
 			},
 		}
 
@@ -143,9 +116,8 @@ func TestFlowsProcessor(t *testing.T) {
 			FlowEvent FlowEvent
 			count     int
 		}{
-			{startedFlow, 1},
-			{completedFlow, 1},
-			{createFlowStartEvent(t), 2},
+			{flowComplete1, 1},
+			{flowComplete2, 2},
 			{flowPurge, 1},
 		}
 
@@ -161,16 +133,8 @@ func TestFlowsProcessor(t *testing.T) {
 	})
 
 	t.Run("handles stats correctly", func(t *testing.T) {
-		startedFlow := createFlowStartEvent(t)
-		tmpFlow := createFlowStatsEvent(t)
-		startedFlowUpdate := FlowEvent{
-			Type: FlowTypeStats,
-			Flow: FlowStats{
-				FlowBase:   startedFlow.Flow.(FlowStart).FlowBase,
-				LastSeenAt: tmpFlow.Flow.(FlowStats).LastSeenAt,
-			},
-		}
 		completedFlow := createFlowCompleteEvent(t)
+		tmpFlow := createFlowStatsEvent(t)
 		completedFlowUpdate := FlowEvent{
 			Type: FlowTypeStats,
 			Flow: FlowStats{
@@ -181,33 +145,13 @@ func TestFlowsProcessor(t *testing.T) {
 		}
 
 		flowProcessor := NewFlowProcessor()
-		flowProcessor.Process(startedFlow)
-		flowProcessor.Process(startedFlowUpdate)
+		flowProcessor.Process(completedFlow)
+		flowProcessor.Process(completedFlowUpdate)
 		events := flowProcessor.GetEvents()
 		if len(events) != 1 {
 			t.Errorf("Expected 1 event, got %d", len(events))
 		}
-		storedFlow, ok := events[startedFlow.Flow.(FlowStart).Digest]
-		if !ok {
-			t.Errorf(
-				"Expected event with digest %s to be present",
-				startedFlow.Flow.(FlowStart).Digest,
-			)
-		}
-		assertEqual(
-			t,
-			storedFlow.Flow.(FlowStart).LastSeenAt,
-			startedFlowUpdate.Flow.(FlowStats).LastSeenAt,
-			"LastSeenAt",
-		)
-
-		flowProcessor.Process(completedFlow)
-		flowProcessor.Process(completedFlowUpdate)
-		events = flowProcessor.GetEvents()
-		if len(events) != 2 {
-			t.Errorf("Expected 2 events, got %d", len(events))
-		}
-		storedFlow = events[completedFlow.Flow.(FlowComplete).Digest]
+		storedFlow := events[completedFlow.Flow.(FlowComplete).Digest]
 		assertEqual(
 			t,
 			storedFlow.Flow.(FlowComplete).LastSeenAt,
@@ -253,35 +197,35 @@ func TestFlowsProcessor(t *testing.T) {
 	})
 
 	t.Run("prunes flows correctly", func(t *testing.T) {
-		startedFlow := createFlowStartEvent(t)
-		completedFlow := createFlowCompleteEvent(t)
-		pruneCompletedFlow := FlowEvent{
+		flowComplete1 := createFlowCompleteEvent(t)
+		flowComplete2 := createFlowCompleteEvent(t)
+		pruneFlow1 := FlowEvent{
 			Type: FlowTypePurge,
 			Flow: FlowPurge{
-				FlowBase: completedFlow.Flow.(FlowComplete).FlowBase,
+				FlowBase: flowComplete1.Flow.(FlowComplete).FlowBase,
 			},
 		}
-		pruneStartedFlow := FlowEvent{
+		pruneFlow2 := FlowEvent{
 			Type: FlowTypePurge,
 			Flow: FlowPurge{
-				FlowBase: startedFlow.Flow.(FlowStart).FlowBase,
+				FlowBase: flowComplete2.Flow.(FlowComplete).FlowBase,
 			},
 		}
 		flowProcessor := NewFlowProcessor()
-		flowProcessor.Process(startedFlow)
-		flowProcessor.Process(completedFlow)
-		flowProcessor.Process(pruneCompletedFlow)
+		flowProcessor.Process(flowComplete1)
+		flowProcessor.Process(flowComplete2)
+		flowProcessor.Process(pruneFlow1)
 		events := flowProcessor.GetEvents()
 		if len(events) != 1 {
-			t.Errorf("Expected 1 events, got %d", len(events))
+			t.Errorf("Expected 1 event, got %d", len(events))
 		}
-		flowProcessor.Process(pruneStartedFlow)
+		flowProcessor.Process(pruneFlow2)
 		events = flowProcessor.GetEvents()
 		if len(events) != 0 {
 			t.Errorf("Expected 0 events, got %d", len(events))
 		}
 		// Prune again to ensure no panic on the unknown flow
-		flowProcessor.Process(pruneCompletedFlow)
+		flowProcessor.Process(pruneFlow1)
 		events = flowProcessor.GetEvents()
 		if len(events) != 0 {
 			t.Errorf("Expected 0 events, got %d", len(events))
@@ -309,34 +253,12 @@ func TestFlowsProcessor(t *testing.T) {
 			time.Now(),
 		}
 
-		lastSeenFlowStarted := []time.Time{
-			time.Now().Add(-2 * time.Hour),
-			time.Now().Add(-15 * time.Minute),
-			time.Now().Add(-5 * time.Minute),
-			time.Now().Add(-1 * time.Minute),
-			time.Now(),
-		}
-
 		processor := NewFlowProcessor()
 
 		for _, ts := range lastSeenFlowCompleted {
 			processor.Process(FlowEvent{
 				Type: FlowTypeDpiComplete,
 				Flow: FlowComplete{
-					FlowStart: FlowStart{
-						FlowBase: FlowBase{
-							Digest: randomDigest(t),
-						},
-						LastSeenAt: ts.UnixMilli(),
-					},
-				},
-			})
-		}
-
-		for _, ts := range lastSeenFlowStarted {
-			processor.Process(FlowEvent{
-				Type: FlowTypeBegin,
-				Flow: FlowStart{
 					FlowBase: FlowBase{
 						Digest: randomDigest(t),
 					},
@@ -347,8 +269,8 @@ func TestFlowsProcessor(t *testing.T) {
 
 		processor.PurgeFlowsOlderThan(10 * time.Minute)
 		events := processor.GetEvents()
-		if len(events) != 8 {
-			t.Errorf("Expected 8 events, got %d", len(events))
+		if len(events) != 5 {
+			t.Errorf("Expected 5 events, got %d", len(events))
 		}
 	})
 
@@ -367,8 +289,8 @@ func TestFlowsProcessor(t *testing.T) {
 				builder.WriteByte(hexChars[rand.IntN(16)])
 			}
 			return FlowEvent{
-				Type: FlowTypeBegin,
-				Flow: FlowStart{
+				Type: FlowTypeDpiComplete,
+				Flow: FlowComplete{
 					FlowBase: FlowBase{
 						Digest: builder.String(),
 					},

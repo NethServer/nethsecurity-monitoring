@@ -7,9 +7,7 @@ import (
 )
 
 const (
-	FlowTypeBegin       = "flow"
 	FlowTypeDpiComplete = "flow_dpi_complete"
-	FlowTypeDpiUpdate   = "flow_dpi_update"
 	FlowTypePurge       = "flow_purge"
 	FlowTypeStats       = "flow_stats"
 )
@@ -41,7 +39,7 @@ type FlowBase struct {
 	Digest string `json:"digest"`
 }
 
-type FlowStart struct {
+type FlowComplete struct {
 	FlowBase
 	Conntrack               Conntrack `json:"conntrack"`
 	DetectedApplication     int       `json:"detected_application"`
@@ -66,10 +64,6 @@ type FlowStart struct {
 		NdpiRiskScoreServer int   `json:"ndpi_risk_score_server"`
 		Risks               []int `json:"risks,omitempty"`
 	} `json:"risks"`
-}
-
-type FlowComplete struct {
-	FlowStart
 	Stats
 	DetectionGuessed bool `json:"detection_guessed,omitempty"`
 	DetectionPackets int  `json:"detection_packets,omitempty"`
@@ -106,14 +100,6 @@ func (f *FlowEvent) UnmarshalJSON(data []byte) error {
 	f.Reason = tmp.Reason
 
 	switch tmp.Type {
-	case FlowTypeBegin:
-		var flow FlowStart
-		if err := json.Unmarshal(tmp.Flow, &flow); err != nil {
-			return fmt.Errorf("malformed %q flow: %w", tmp.Type, err)
-		}
-		f.Flow = flow
-	case FlowTypeDpiUpdate:
-		fallthrough
 	case FlowTypeDpiComplete:
 		var flow FlowComplete
 		if err := json.Unmarshal(tmp.Flow, &flow); err != nil {

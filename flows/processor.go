@@ -25,9 +25,6 @@ func (fp *FlowProcessor) Process(event FlowEvent) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 	switch f := event.Flow.(type) {
-	case FlowStart:
-		slog.Debug("Flow start", "digest", f.Digest)
-		fp.eventMap[f.Digest] = event
 	case FlowComplete:
 		slog.Debug("Flow complete", "digest", f.Digest)
 		fp.eventMap[f.Digest] = event
@@ -42,10 +39,6 @@ func (fp *FlowProcessor) Process(event FlowEvent) {
 			return
 		}
 		switch toUpdateFlow := flow.Flow.(type) {
-		case FlowStart:
-			toUpdateFlow.LastSeenAt = f.LastSeenAt
-			flow.Flow = toUpdateFlow
-			fp.eventMap[f.Digest] = flow
 		case FlowComplete:
 			toUpdateFlow.LastSeenAt = f.LastSeenAt
 			toUpdateFlow.LocalBytes += f.LocalBytes
@@ -82,10 +75,6 @@ func (fp *FlowProcessor) PurgeFlowsOlderThan(olderThan time.Duration) {
 	cutoff := time.Now().Add(-olderThan)
 	for v, f := range fp.eventMap {
 		switch f.Flow.(type) {
-		case FlowStart:
-			if time.UnixMilli(f.Flow.(FlowStart).LastSeenAt).Before(cutoff) {
-				digests = append(digests, v)
-			}
 		case FlowComplete:
 			if time.UnixMilli(f.Flow.(FlowComplete).LastSeenAt).Before(cutoff) {
 				digests = append(digests, v)

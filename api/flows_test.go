@@ -32,8 +32,8 @@ func TestFlows(t *testing.T) {
 		mock := &MockFlowAccessor{
 			events: map[string]flows.FlowEvent{
 				"f-001": {
-					Type: flows.FlowTypeBegin,
-					Flow: flows.FlowStart{
+					Type: flows.FlowTypeDpiComplete,
+					Flow: flows.FlowComplete{
 						FlowBase: flows.FlowBase{
 							Digest: "f-001",
 						},
@@ -43,18 +43,16 @@ func TestFlows(t *testing.T) {
 				"f-002": {
 					Type: flows.FlowTypeDpiComplete,
 					Flow: flows.FlowComplete{
-						FlowStart: flows.FlowStart{
-							FlowBase: flows.FlowBase{
-								Digest: "f-002",
-							},
-							LocalOrigin: true,
+						FlowBase: flows.FlowBase{
+							Digest: "f-002",
 						},
-						Stats: flows.Stats{LocalRate: 3000, OtherRate: 200},
+						LocalOrigin: true,
+						Stats:       flows.Stats{LocalRate: 3000, OtherRate: 200},
 					},
 				},
 				"f-003": {
-					Type: flows.FlowTypeBegin,
-					Flow: flows.FlowStart{
+					Type: flows.FlowTypeDpiComplete,
+					Flow: flows.FlowComplete{
 						FlowBase:    flows.FlowBase{Digest: "f-003"},
 						LocalOrigin: true,
 					},
@@ -62,11 +60,9 @@ func TestFlows(t *testing.T) {
 				"f-004": {
 					Type: flows.FlowTypeDpiComplete,
 					Flow: flows.FlowComplete{
-						FlowStart: flows.FlowStart{
-							FlowBase:    flows.FlowBase{Digest: "f-004"},
-							LocalOrigin: false,
-						},
-						Stats: flows.Stats{TotalBytes: 5000, LocalRate: 10, OtherRate: 0.0},
+						FlowBase:    flows.FlowBase{Digest: "f-004"},
+						LocalOrigin: false,
+						Stats:       flows.Stats{TotalBytes: 5000, LocalRate: 10, OtherRate: 0.0},
 					},
 				},
 			},
@@ -88,8 +84,6 @@ func TestFlows(t *testing.T) {
 		for _, ev := range body.Data {
 			var digest string
 			switch ev.Flow.(type) {
-			case flows.FlowStart:
-				digest = ev.Flow.(flows.FlowStart).Digest
 			case flows.FlowComplete:
 				digest = ev.Flow.(flows.FlowComplete).Digest
 			case flows.FlowStats:
