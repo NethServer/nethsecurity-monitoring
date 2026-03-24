@@ -193,7 +193,12 @@ func TestParsingFlow(t *testing.T) {
 				assertEqual(t, f.Conntrack.ReplySrcPort, 443, "Conntrack.ReplySrcPort")
 
 				// Detection fields
-				assertEqual(t, f.DetectedApplicationName, "netify.cloud-service", "DetectedApplicationName")
+				assertEqual(
+					t,
+					f.DetectedApplicationName,
+					"netify.cloud-service",
+					"DetectedApplicationName",
+				)
 				assertEqual(t, f.DetectedApplication, 10733, "DetectedApplication")
 				assertEqual(t, f.DetectedProtocol, 188, "DetectedProtocol")
 				assertEqual(t, f.DetectedProtocolName, "QUIC", "DetectedProtocolName")
@@ -246,7 +251,15 @@ func TestParsingFlow(t *testing.T) {
 				assertEqual(t, f.IpVersion, 4, "IpVersion")
 				assertEqual(t, f.SoftDissector, false, "SoftDissector")
 				assertEqual(t, f.VlanId, 0, "VlanId")
-				assertSliceEqual(t, f.DigestPrev, []string{"0123456789abcdef0123456789abcdef01234567", "abcdef0123456789abcdef0123456789abcdef01"}, "DigestPrev")
+				assertSliceEqual(
+					t,
+					f.DigestPrev,
+					[]string{
+						"0123456789abcdef0123456789abcdef01234567",
+						"abcdef0123456789abcdef0123456789abcdef01",
+					},
+					"DigestPrev",
+				)
 				assertSliceEqual(t, f.Tags, []string{"test-tag"}, "Tags")
 
 				// Category
@@ -294,7 +307,12 @@ func TestParsingFlow(t *testing.T) {
 				f := flow.(FlowPurge)
 				assertEqual(t, f.Digest, "d4e5f6a7b8c901234567890123456789bcdef012", "Digest")
 				assertEqual(t, f.DetectionPackets, 2, "DetectionPackets")
-				assertSliceEqual(t, f.DigestPrev, []string{"23456789abcdef0123456789abcdef0123456789"}, "DigestPrev")
+				assertSliceEqual(
+					t,
+					f.DigestPrev,
+					[]string{"23456789abcdef0123456789abcdef0123456789"},
+					"DigestPrev",
+				)
 				assertEqual(t, f.LastSeenAt, int64(1765893726667), "LastSeenAt")
 				assertEqual(t, f.LocalBytes, int64(256), "LocalBytes")
 				assertEqual(t, f.LocalPackets, 1, "LocalPackets")
@@ -321,7 +339,15 @@ func TestParsingFlow(t *testing.T) {
 				f := flow.(FlowStats)
 				assertEqual(t, f.Digest, "e5f6a7b8c9d012345678901234567890cdef0123", "Digest")
 				assertEqual(t, f.DetectionPackets, 32, "DetectionPackets")
-				assertSliceEqual(t, f.DigestPrev, []string{"3456789abcdef0123456789abcdef01234567890", "bcdef0123456789abcdef0123456789abcdef012"}, "DigestPrev")
+				assertSliceEqual(
+					t,
+					f.DigestPrev,
+					[]string{
+						"3456789abcdef0123456789abcdef01234567890",
+						"bcdef0123456789abcdef0123456789abcdef012",
+					},
+					"DigestPrev",
+				)
 				assertEqual(t, f.LastSeenAt, int64(1765893801667), "LastSeenAt")
 				assertEqual(t, f.LocalBytes, int64(2028), "LocalBytes")
 				assertEqual(t, f.LocalPackets, 34, "LocalPackets")
