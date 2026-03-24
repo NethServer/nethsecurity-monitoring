@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.1...v1.0.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* decoding all fields from documentation ([affb289](https://github.com/NethServer/nethsecurity-monitoring/commit/affb2895a86ad2f4035dcaedde979ebbee6bea97))
+* using only completed events ([a7712be](https://github.com/NethServer/nethsecurity-monitoring/commit/a7712be6b289d839320d2c68beeb25778eb7886e))
+
 ## [1.0.1](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.0...v1.0.1) (2026-03-12)
 
 
