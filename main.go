@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -18,6 +19,46 @@ import (
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
 )
+
+// reconnectTimeout is the maximum time spent retrying a lost netifyd connection.
+const reconnectTimeout = 5 * time.Second
+
+// retryInterval is the pause between successive reconnection attempts.
+const retryInterval = 100 * time.Millisecond
+
+// dialWithRetry tries to open a Unix socket connection to socketPath.  It keeps
+// retrying every retryInterval until either the connection succeeds, the context
+// is cancelled, or the reconnectTimeout deadline is exceeded.  All retry
+// attempts are logged at debug level so that brief netifyd reloads don't
+// produce noise in the default log level.
+func dialWithRetry(ctx context.Context, socketPath string) (net.Conn, error) {
+	deadline := time.Now().Add(reconnectTimeout)
+	for {
+		conn, err := net.Dial("unix", socketPath)
+		if err == nil {
+			return conn, nil
+		}
+		slog.Debug(
+			"Failed to connect to netifyd socket, retrying",
+			"error",
+			err,
+			"retry_in",
+			retryInterval,
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(retryInterval):
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf(
+					"could not reconnect to netifyd socket within %s: %w",
+					reconnectTimeout, err,
+				)
+			}
+		}
+	}
+}
 
 func main() {
 	var socketPath string
@@ -66,11 +107,10 @@ func main() {
 	logger := slog.New(&BasicLogger{out: os.Stderr, level: logLevel})
 	slog.SetDefault(logger)
 
-	conn, err := net.Dial("unix", socketPath)
+	conn, err := dialWithRetry(context.Background(), socketPath)
 	if err != nil {
 		log.Fatalf("Failed to connect to netifyd socket: %v", err)
 	}
-	defer conn.Close() //nolint:errcheck
 
 	processor := flows.NewFlowProcessor()
 
@@ -103,27 +143,46 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer conn.Close() //nolint:errcheck
+
 		decoder := json.NewDecoder(conn)
 		for {
+			// Check for shutdown before every decode attempt.
 			select {
 			case <-ctx.Done():
 				slog.Info("Stopping flow processing")
 				return
 			default:
-				var event flows.FlowEvent
-				if err := decoder.Decode(&event); err != nil {
-					if ctx.Err() != nil {
-						slog.Info("Stopping flow processing")
-						return
-					}
-					if err == io.EOF {
-						log.Fatalf("Netifyd closed the socket.")
-					}
+			}
+
+			var event flows.FlowEvent
+			if err := decoder.Decode(&event); err != nil {
+				if ctx.Err() != nil {
+					slog.Info("Stopping flow processing")
+					return
+				}
+
+				if err != io.EOF {
 					slog.Debug("Failed to decode flow event, continuing", "error", err)
 					continue
 				}
-				processor.Process(event)
+
+				slog.Debug("Netifyd socket disconnected, attempting to reconnect",
+					"timeout", reconnectTimeout)
+				conn.Close() //nolint:errcheck
+
+				newConn, dialErr := dialWithRetry(ctx, socketPath)
+				if dialErr != nil {
+					log.Fatalf("Netifyd socket unavailable: %v", dialErr)
+				}
+
+				slog.Debug("Reconnected to netifyd socket")
+				conn = newConn
+				decoder = json.NewDecoder(conn)
+				continue
 			}
+
+			processor.Process(event)
 		}
 	}()
 
