@@ -1,4 +1,4 @@
-package main
+package logger
 
 import (
 	"context"
@@ -7,16 +7,20 @@ import (
 	"log/slog"
 )
 
-type BasicLogger struct {
+type Handler struct {
 	out   io.Writer
 	level slog.Level
 }
 
-func (h *BasicLogger) Enabled(_ context.Context, l slog.Level) bool {
+func New(out io.Writer, level slog.Level) slog.Handler {
+	return &Handler{out: out, level: level}
+}
+
+func (h *Handler) Enabled(_ context.Context, l slog.Level) bool {
 	return l >= h.level
 }
 
-func (h *BasicLogger) Handle(_ context.Context, r slog.Record) error {
+func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	// Format: LEVEL Message
 	if _, err := fmt.Fprintf(h.out, "%s %s", r.Level, r.Message); err != nil {
 		return err
@@ -30,5 +34,5 @@ func (h *BasicLogger) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-func (h *BasicLogger) WithAttrs(_ []slog.Attr) slog.Handler { return h }
-func (h *BasicLogger) WithGroup(_ string) slog.Handler      { return h }
+func (h *Handler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *Handler) WithGroup(_ string) slog.Handler      { return h }

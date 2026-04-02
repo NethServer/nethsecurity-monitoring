@@ -18,6 +18,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
+	"github.com/nethserver/nethsecurity-monitoring/internal/logger"
+	"github.com/nethserver/nethsecurity-monitoring/internal/scheduler"
 )
 
 // reconnectTimeout is the maximum time spent retrying a lost netifyd connection.
@@ -104,8 +106,8 @@ func main() {
 		log.Fatalf("Invalid log level: %s", debugLevel)
 	}
 
-	logger := slog.New(&BasicLogger{out: os.Stderr, level: logLevel})
-	slog.SetDefault(logger)
+	loggerHandler := logger.New(os.Stderr, logLevel)
+	slog.SetDefault(slog.New(loggerHandler))
 
 	conn, err := dialWithRetry(context.Background(), socketPath)
 	if err != nil {
@@ -134,7 +136,7 @@ func main() {
 		}
 	}()
 
-	NewTask(ctx, &wg, "prune", 10*time.Second, func() {
+	scheduler.NewTask(ctx, &wg, "prune", 10*time.Second, func() {
 		processor.PurgeFlowsOlderThan(expiredPersistence)
 	}).Run()
 
