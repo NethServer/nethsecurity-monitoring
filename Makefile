@@ -4,7 +4,7 @@ all: test build
 
 build:
 	@mkdir -p dist
-	CGO_ENABLED=0 go build -o dist/ns-flows
+	go build -o dist/ns-flows ./cmd/ns-flows
 	@echo "Build complete, binaries are in dist/"
 
 test:
