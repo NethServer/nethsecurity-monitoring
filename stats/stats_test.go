@@ -182,3 +182,71 @@ func TestStoreSave(t *testing.T) {
 		}
 	})
 }
+
+func TestStoreDeleteOlderThan(t *testing.T) {
+	store, db := setupStore(t)
+	defer store.Close() //nolint:errcheck
+	defer db.Close()    //nolint:errcheck
+
+	oldPayload := Payload{
+		LogTimeStart: 1,
+		LogTimeEnd:   2,
+		Stats: []Statistic{{
+			DetectedApplication:     1,
+			DetectedApplicationName: "old",
+			DetectedProtocol:        1,
+			DetectedProtocolName:    "old",
+			Internal:                true,
+			LocalBytes:              1,
+			LocalIp:                 "10.0.0.1",
+			LocalOrigin:             true,
+			OtherBytes:              1,
+			OtherIp:                 "10.0.0.2",
+			OtherType:               "remote",
+		}},
+	}
+
+	newPayload := Payload{
+		LogTimeStart: 10,
+		LogTimeEnd:   20,
+		Stats: []Statistic{{
+			DetectedApplication:     2,
+			DetectedApplicationName: "new",
+			DetectedProtocol:        2,
+			DetectedProtocolName:    "new",
+			Internal:                true,
+			LocalBytes:              2,
+			LocalIp:                 "10.0.0.3",
+			LocalOrigin:             false,
+			OtherBytes:              2,
+			OtherIp:                 "10.0.0.4",
+			OtherType:               "local",
+		}},
+	}
+
+	if err := store.Save(t.Context(), oldPayload); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(t.Context(), newPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteOlderThan(t.Context(), 10); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 timestamp row, got %d", count)
+	}
+
+	if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 stat row, got %d", count)
+	}
+}

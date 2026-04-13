@@ -5,11 +5,16 @@ import (
 	"flag"
 	"log"
 	"log/slog"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
+	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	airRecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/nethserver/nethsecurity-monitoring/api"
+	"github.com/nethserver/nethsecurity-monitoring/internal/logger"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 
@@ -22,6 +27,9 @@ func main() {
 
 	var debugLevel string
 	flag.StringVar(&debugLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+
+	var retention time.Duration
+	flag.DurationVar(&retention, "retention", 24*time.Hour, "delete stats older than this duration")
 
 	flag.Parse()
 
@@ -47,11 +55,70 @@ func main() {
 	}
 	defer store.Close() //nolint:errcheck
 
-	server := fiber.New(fiber.Config{})
-	server.Use(airRecover.New())
-	server.Use(logger.New())
-	api.NewStatsApi(store).Setup(server)
-	if err := server.Listen(addr); err != nil {
-		slog.Error("API server stopped", "error", err)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	var wg sync.WaitGroup
+
+	server := fiber.New(fiber.Config{
+		AppName:               "ns-stats",
+		DisableStartupMessage: true,
+	})
+	if logLevel == slog.LevelDebug {
+		server.Use(fiberlogger.New(fiberlogger.Config{
+			Format:     "${method} ${path} ${status} ${latency}\n",
+			TimeFormat: "15:04:05",
+			Output:     &logger.FiberWriter{},
+		}))
 	}
+	server.Use(airRecover.New())
+	api.NewStatsApi(store).Setup(server)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := server.Listen(addr); err != nil {
+			slog.Debug("API server stopped", "error", err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
+		prune := func() {
+			cutoff := time.Now().Add(-retention).Unix()
+			slog.Debug("Pruning expired stats", "cutoff", cutoff)
+			if err := store.DeleteOlderThan(ctx, cutoff); err != nil {
+				slog.Error("Failed to delete expired stats", "error", err)
+				return
+			}
+			slog.Debug("Pruned expired stats", "cutoff", cutoff)
+		}
+
+		prune()
+
+		for {
+			select {
+			case <-ticker.C:
+				prune()
+			case <-ctx.Done():
+				slog.Info("Stopping stats cleanup")
+				return
+			}
+		}
+	}()
+
+	<-ctx.Done()
+
+	slog.Info("Shutting down API server")
+	if err := server.Shutdown(); err != nil {
+		slog.Error("API server shutdown error", "error", err)
+	}
+
+	wg.Wait()
+	slog.Info("All processes completed, exiting")
 }

@@ -139,6 +139,18 @@ INSERT INTO stats (
 	return nil
 }
 
+func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
+	if _, err := s.db.ExecContext(
+		ctx,
+		`DELETE FROM stats_timestamps WHERE log_time_end < ?`,
+		cutoff,
+	); err != nil {
+		return fmt.Errorf("delete expired stats: %w", err)
+	}
+
+	return nil
+}
+
 func boolToInt(value bool) int {
 	if value {
 		return 1
