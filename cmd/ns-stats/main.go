@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"log"
 	"log/slog"
@@ -12,7 +11,6 @@ import (
 	airRecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
-	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -43,21 +41,16 @@ func main() {
 
 	slog.SetLogLoggerLevel(logLevel)
 
-	db, err := sql.Open("sqlite", dbPath)
+	store, err := stats.Open(context.Background(), dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open SQLite database: %v", err)
-	}
-	defer db.Close() //nolint:errcheck
-
-	store := stats.NewStore(db)
-	if err := store.Init(context.Background()); err != nil {
 		log.Fatalf("Failed to initialize SQLite schema: %v", err)
 	}
+	defer store.Close() //nolint:errcheck
 
 	server := fiber.New(fiber.Config{})
 	server.Use(airRecover.New())
 	server.Use(logger.New())
-	api.NewStatsApi(stats.NewReceiver(store)).Setup(server)
+	api.NewStatsApi(store).Setup(server)
 	if err := server.Listen(addr); err != nil {
 		slog.Error("API server stopped", "error", err)
 	}

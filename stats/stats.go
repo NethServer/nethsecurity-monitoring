@@ -34,54 +34,20 @@ type Statistic struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	dbPath string
 }
 
-func NewStore(db *sql.DB) *Store {
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	return &Store{db: db}
+type Saver interface {
+	Save(context.Context, Payload) error
 }
 
-func (s *Store) Init(ctx context.Context) error {
-	const schema = `
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS stats_timestamps (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	log_time_start INTEGER NOT NULL,
-	log_time_end INTEGER NOT NULL,
-	UNIQUE(log_time_start, log_time_end)
-);
-
-CREATE TABLE IF NOT EXISTS stats (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	stats_timestamp_id INTEGER NOT NULL,
-	detected_application INTEGER NOT NULL,
-	detected_application_name TEXT NOT NULL,
-	detected_protocol INTEGER NOT NULL,
-	detected_protocol_name TEXT NOT NULL,
-	internal INTEGER NOT NULL,
-	local_bytes INTEGER NOT NULL,
-	local_ip TEXT NOT NULL,
-	local_origin INTEGER NOT NULL,
-	other_bytes INTEGER NOT NULL,
-	other_ip TEXT NOT NULL,
-	other_type TEXT NOT NULL,
-	FOREIGN KEY(stats_timestamp_id) REFERENCES stats_timestamps(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_stats_timestamps_log_time_start ON stats_timestamps (log_time_start);
-CREATE INDEX IF NOT EXISTS idx_stats_timestamps_log_time_end ON stats_timestamps (log_time_end);
-CREATE INDEX IF NOT EXISTS idx_stats_stats_timestamp_id ON stats (stats_timestamp_id);
-`
-
-	_, err := s.db.ExecContext(ctx, schema)
-	if err != nil {
-		return fmt.Errorf("create stats schema: %w", err)
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
 	}
 
-	return nil
+	return s.db.Close()
 }
 
 func (s *Store) Save(ctx context.Context, payload Payload) error {
@@ -122,13 +88,18 @@ INSERT INTO stats (
 	detected_protocol,
 	detected_protocol_name,
 	internal,
+	ip_protocol,
+	ip_version,
 	local_bytes,
 	local_ip,
+	local_mac,
 	local_origin,
 	other_bytes,
 	other_ip,
-	other_type
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	other_port,
+	other_type,
+	packets
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 	if err != nil {
 		return fmt.Errorf("prepare stats insert: %w", err)
@@ -144,12 +115,17 @@ INSERT INTO stats (
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
 			boolToInt(stat.Internal),
+			stat.IpProtocol,
+			stat.IpVersion,
 			stat.LocalBytes,
 			stat.LocalIp,
+			stat.LocalMac,
 			boolToInt(stat.LocalOrigin),
 			stat.OtherBytes,
 			stat.OtherIp,
+			stat.OtherPort,
 			stat.OtherType,
+			stat.Packets,
 		)
 		if err != nil {
 			return fmt.Errorf("insert stats entry: %w", err)
@@ -161,18 +137,6 @@ INSERT INTO stats (
 	}
 
 	return nil
-}
-
-type Receiver struct {
-	store *Store
-}
-
-func NewReceiver(store *Store) *Receiver {
-	return &Receiver{store: store}
-}
-
-func (r *Receiver) Handle(ctx context.Context, payload Payload) error {
-	return r.store.Save(ctx, payload)
 }
 
 func boolToInt(value bool) int {

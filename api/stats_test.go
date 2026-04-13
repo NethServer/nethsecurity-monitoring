@@ -2,54 +2,65 @@ package api
 
 import (
 	"bytes"
-	"database/sql"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/go-playground/assert/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
-	_ "modernc.org/sqlite"
 )
 
-func setupStatsApi(t *testing.T) (*fiber.App, *sql.DB) {
+type mockSaver struct {
+	payloads []stats.Payload
+	err      error
+}
+
+func (m *mockSaver) Save(_ context.Context, payload stats.Payload) error {
+	m.payloads = append(m.payloads, payload)
+	return m.err
+}
+
+func setupStatsApi(t *testing.T, saver stats.Saver) *fiber.App {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "stats.db")
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	store := stats.NewStore(db)
-	if err := store.Init(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
 	app := fiber.New()
-	statsApi := NewStatsApi(stats.NewReceiver(store))
+	statsApi := NewStatsApi(saver)
 	statsApi.Setup(app)
 
-	return app, db
+	return app
 }
 
 func TestStats(t *testing.T) {
 	t.Run("stats endpoint accepts sample payload", func(t *testing.T) {
-		app, db := setupStatsApi(t)
-		defer db.Close() //nolint:errcheck
+		saver := &mockSaver{}
+		app := setupStatsApi(t, saver)
 
-		payloadPath := filepath.Join("..", "logs-testing.json")
-		payload, err := os.ReadFile(payloadPath)
-		if err != nil {
-			t.Fatal(err)
+		sample := stats.Payload{
+			LogTimeStart: 1,
+			LogTimeEnd:   2,
+			Stats: []stats.Statistic{
+				{
+					DetectedApplication:     10,
+					DetectedApplicationName: "app",
+					DetectedProtocol:        20,
+					DetectedProtocolName:    "proto",
+					Internal:                true,
+					LocalBytes:              30,
+					LocalIp:                 "10.0.0.1",
+					LocalOrigin:             true,
+					OtherBytes:              40,
+					OtherIp:                 "10.0.0.2",
+					OtherType:               "remote",
+				},
+			},
 		}
 
-		var sample stats.Payload
-		if err := json.Unmarshal(payload, &sample); err != nil {
+		payload, err := json.Marshal(sample)
+		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -61,24 +72,19 @@ func TestStats(t *testing.T) {
 			t.Fatal(err)
 		}
 		assert.Equal(t, 200, res.StatusCode)
-
-		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, len(sample.Stats), count)
-
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 1, count)
+		assert.Equal(t, 1, len(saver.payloads))
+		assert.Equal(t, sample.LogTimeStart, saver.payloads[0].LogTimeStart)
+		assert.Equal(t, len(sample.Stats), len(saver.payloads[0].Stats))
 	})
 
 	t.Run("stats endpoint rejects malformed payload", func(t *testing.T) {
-		app, db := setupStatsApi(t)
-		defer db.Close() //nolint:errcheck
+		app := setupStatsApi(t, &mockSaver{})
 
-		req := httptest.NewRequest(http.MethodPost, "/stats", bytes.NewBufferString(`{"log_time_start":"bad"}`))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/stats",
+			bytes.NewBufferString(`{"log_time_start":"bad"}`),
+		)
 		req.Header.Set("Content-Type", "application/json")
 
 		res, err := app.Test(req)
@@ -89,14 +95,26 @@ func TestStats(t *testing.T) {
 	})
 
 	t.Run("stats endpoint stores same timestamps twice", func(t *testing.T) {
-		app, db := setupStatsApi(t)
-		defer db.Close() //nolint:errcheck
+		saver := &mockSaver{}
+		app := setupStatsApi(t, saver)
 
 		payload := stats.Payload{
 			LogTimeStart: 1,
 			LogTimeEnd:   2,
 			Stats: []stats.Statistic{
-				{DetectedApplication: 1, DetectedApplicationName: "a", DetectedProtocol: 2, DetectedProtocolName: "b", Internal: true, LocalBytes: 3, LocalIp: "1.1.1.1", LocalOrigin: false, OtherBytes: 4, OtherIp: "2.2.2.2", OtherType: "remote"},
+				{
+					DetectedApplication:     1,
+					DetectedApplicationName: "a",
+					DetectedProtocol:        2,
+					DetectedProtocolName:    "b",
+					Internal:                true,
+					LocalBytes:              3,
+					LocalIp:                 "1.1.1.1",
+					LocalOrigin:             false,
+					OtherBytes:              4,
+					OtherIp:                 "2.2.2.2",
+					OtherType:               "remote",
+				},
 			},
 		}
 
@@ -115,16 +133,23 @@ func TestStats(t *testing.T) {
 			}
 			assert.Equal(t, 200, res.StatusCode)
 		}
+		assert.Equal(t, 2, len(saver.payloads))
+	})
 
-		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
+	t.Run("stats endpoint propagates save errors", func(t *testing.T) {
+		app := setupStatsApi(t, &mockSaver{err: errors.New("boom")})
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/stats",
+			bytes.NewReader([]byte(`{"log_time_start":1,"log_time_end":2,"stats":[]}`)),
+		)
+		req.Header.Set("Content-Type", "application/json")
+
+		res, err := app.Test(req)
+		if err != nil {
 			t.Fatal(err)
 		}
-		assert.Equal(t, 2, count)
-
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		assert.Equal(t, 1, count)
+		assert.Equal(t, 500, res.StatusCode)
 	})
 }

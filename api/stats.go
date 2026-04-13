@@ -8,11 +8,11 @@ import (
 )
 
 type StatsApi struct {
-	receiver *stats.Receiver
+	saver stats.Saver
 }
 
-func NewStatsApi(receiver *stats.Receiver) *StatsApi {
-	return &StatsApi{receiver: receiver}
+func NewStatsApi(saver stats.Saver) *StatsApi {
+	return &StatsApi{saver: saver}
 }
 
 func (s *StatsApi) Setup(app *fiber.App) {
@@ -24,7 +24,7 @@ func (s *StatsApi) Setup(app *fiber.App) {
 			})
 		}
 
-		if err := s.receiver.Handle(context.Background(), payload); err != nil {
+		if err := s.saver.Save(context.Background(), payload); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "failed to persist stats payload: " + err.Error(),
 			})

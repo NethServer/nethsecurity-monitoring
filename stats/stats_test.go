@@ -17,8 +17,8 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatal(err)
 	}
 
-	store := NewStore(db)
-	if err := store.Init(t.Context()); err != nil {
+	store, err := Open(t.Context(), dbPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -28,14 +28,39 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 func TestStoreSave(t *testing.T) {
 	t.Run("stores one row per stat", func(t *testing.T) {
 		store, db := setupStore(t)
-		defer db.Close() //nolint:errcheck
+		defer store.Close() //nolint:errcheck
+		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
 			LogTimeStart: 1,
 			LogTimeEnd:   2,
 			Stats: []Statistic{
-				{DetectedApplication: 10, DetectedApplicationName: "app", DetectedProtocol: 20, DetectedProtocolName: "proto", Internal: true, LocalBytes: 30, LocalIp: "10.0.0.1", LocalOrigin: true, OtherBytes: 40, OtherIp: "10.0.0.2", OtherType: "remote"},
-				{DetectedApplication: 11, DetectedApplicationName: "app2", DetectedProtocol: 21, DetectedProtocolName: "proto2", Internal: false, LocalBytes: 31, LocalIp: "10.0.0.3", LocalOrigin: false, OtherBytes: 41, OtherIp: "10.0.0.4", OtherType: "local"},
+				{
+					DetectedApplication:     10,
+					DetectedApplicationName: "app",
+					DetectedProtocol:        20,
+					DetectedProtocolName:    "proto",
+					Internal:                true,
+					LocalBytes:              30,
+					LocalIp:                 "10.0.0.1",
+					LocalOrigin:             true,
+					OtherBytes:              40,
+					OtherIp:                 "10.0.0.2",
+					OtherType:               "remote",
+				},
+				{
+					DetectedApplication:     11,
+					DetectedApplicationName: "app2",
+					DetectedProtocol:        21,
+					DetectedProtocolName:    "proto2",
+					Internal:                false,
+					LocalBytes:              31,
+					LocalIp:                 "10.0.0.3",
+					LocalOrigin:             false,
+					OtherBytes:              41,
+					OtherIp:                 "10.0.0.4",
+					OtherType:               "local",
+				},
 			},
 		}
 
@@ -61,12 +86,27 @@ func TestStoreSave(t *testing.T) {
 
 	t.Run("reuses repeated timestamps", func(t *testing.T) {
 		store, db := setupStore(t)
-		defer db.Close() //nolint:errcheck
+		defer store.Close() //nolint:errcheck
+		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
 			LogTimeStart: 5,
 			LogTimeEnd:   6,
-			Stats:        []Statistic{{DetectedApplication: 1, DetectedApplicationName: "a", DetectedProtocol: 2, DetectedProtocolName: "b", Internal: true, LocalBytes: 3, LocalIp: "1.1.1.1", LocalOrigin: false, OtherBytes: 4, OtherIp: "2.2.2.2", OtherType: "remote"}},
+			Stats: []Statistic{
+				{
+					DetectedApplication:     1,
+					DetectedApplicationName: "a",
+					DetectedProtocol:        2,
+					DetectedProtocolName:    "b",
+					Internal:                true,
+					LocalBytes:              3,
+					LocalIp:                 "1.1.1.1",
+					LocalOrigin:             false,
+					OtherBytes:              4,
+					OtherIp:                 "2.2.2.2",
+					OtherType:               "remote",
+				},
+			},
 		}
 
 		if err := store.Save(t.Context(), payload); err != nil {
@@ -94,19 +134,42 @@ func TestStoreSave(t *testing.T) {
 
 	t.Run("cascades stats when timestamp is deleted", func(t *testing.T) {
 		store, db := setupStore(t)
-		defer db.Close() //nolint:errcheck
+		defer store.Close() //nolint:errcheck
+		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
 			LogTimeStart: 9,
 			LogTimeEnd:   10,
-			Stats:        []Statistic{{DetectedApplication: 1, DetectedApplicationName: "a", DetectedProtocol: 2, DetectedProtocolName: "b", Internal: true, LocalBytes: 3, LocalIp: "1.1.1.1", LocalOrigin: false, OtherBytes: 4, OtherIp: "2.2.2.2", OtherType: "remote"}},
+			Stats: []Statistic{
+				{
+					DetectedApplication:     1,
+					DetectedApplicationName: "a",
+					DetectedProtocol:        2,
+					DetectedProtocolName:    "b",
+					Internal:                true,
+					LocalBytes:              3,
+					LocalIp:                 "1.1.1.1",
+					LocalOrigin:             false,
+					OtherBytes:              4,
+					OtherIp:                 "2.2.2.2",
+					OtherType:               "remote",
+				},
+			},
 		}
 
 		if err := store.Save(t.Context(), payload); err != nil {
 			t.Fatal(err)
 		}
 
-		if _, err := db.Exec("DELETE FROM stats_timestamps WHERE log_time_start = ? AND log_time_end = ?", payload.LogTimeStart, payload.LogTimeEnd); err != nil {
+		if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := db.Exec(
+			"DELETE FROM stats_timestamps WHERE log_time_start = ? AND log_time_end = ?",
+			payload.LogTimeStart,
+			payload.LogTimeEnd,
+		); err != nil {
 			t.Fatal(err)
 		}
 
