@@ -12,7 +12,9 @@ type Payload struct {
 }
 
 type Statistic struct {
+	DetectedApplication     int    `json:"detected_application"`
 	DetectedApplicationName string `json:"detected_application_name"`
+	DetectedProtocol        int    `json:"detected_protocol"`
 	DetectedProtocolName    string `json:"detected_protocol_name"`
 	LocalIp                 string `json:"local_ip"`
 	OtherIp                 string `json:"other_ip"`
@@ -55,14 +57,24 @@ func (s *Store) Save(ctx context.Context, payload Payload) error {
 	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO hourly_traffic (
 	hour_bucket,
+	detected_application,
 	detected_application_name,
+	detected_protocol,
 	detected_protocol_name,
 	source_ip,
 	destination_ip,
 	local_bytes,
 	other_bytes
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(hour_bucket, detected_application_name, detected_protocol_name, source_ip, destination_ip)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(
+	hour_bucket,
+	detected_application,
+	detected_application_name,
+	detected_protocol,
+	detected_protocol_name,
+	source_ip,
+	destination_ip
+)
 DO UPDATE SET
 	local_bytes = local_bytes + excluded.local_bytes,
 	other_bytes = other_bytes + excluded.other_bytes
@@ -87,7 +99,9 @@ DO UPDATE SET
 		_, err = stmt.ExecContext(
 			ctx,
 			hourBucket,
+			stat.DetectedApplication,
 			stat.DetectedApplicationName,
+			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
 			sourceIp,
 			destIp,

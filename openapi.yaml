@@ -42,7 +42,9 @@ paths:
             example:
               log_time_end: 1775133664
               stats:
-                - detected_application_name: 10450.netify.sentry-io
+                - detected_application: 10033
+                  detected_application_name: netify.netify
+                  detected_protocol: 196
                   detected_protocol_name: HTTP/S
                   local_bytes: 52
                   local_ip: 10.70.148.2
@@ -253,9 +255,13 @@ components:
 
     Statistic:
       type: object
-      description: Single statistic entry from the incoming batch representing one flow's hourly aggregated traffic.
+      description: |
+        Single statistic entry from the incoming batch representing one flow's
+        hourly aggregated traffic.
       required:
+        - detected_application
         - detected_application_name
+        - detected_protocol
         - detected_protocol_name
         - local_bytes
         - local_ip
@@ -263,18 +269,28 @@ components:
         - other_bytes
         - other_ip
       properties:
+        detected_application:
+          type: integer
+          description: Application ID identified by DPI.
+          example: 10033
         detected_application_name:
           type: string
           description: Application name identified by DPI.
-          example: YouTube
+          example: netify.netify
+        detected_protocol:
+          type: integer
+          description: Protocol ID identified by DPI.
+          example: 196
         detected_protocol_name:
           type: string
           description: Protocol name identified by DPI.
-          example: TLS
+          example: HTTP/S
         local_bytes:
           type: integer
           format: int64
-          description: Bytes sent from the local IP (source if local_origin=true, else destination).
+          description: |
+            Bytes sent from the local IP (source if local_origin=true, else
+            destination).
           example: 52
         local_ip:
           type: string
@@ -284,12 +300,15 @@ components:
           type: boolean
           description: |
             `true` when the local IP initiated the connection.
-            When true, local_ip is the source; when false, it is the destination.
+            When true, local_ip is the source; when false, it is the
+            destination.
           example: true
         other_bytes:
           type: integer
           format: int64
-          description: Bytes sent from the remote IP (destination if local_origin=true, else source).
+          description: |
+            Bytes sent from the remote IP (destination if local_origin=true,
+            else source).
           example: 52
         other_ip:
           type: string

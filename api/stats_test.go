@@ -43,8 +43,10 @@ func TestStats(t *testing.T) {
 			LogTimeEnd: 3661,
 			Stats: []stats.Statistic{
 				{
-					DetectedApplicationName: "app",
-					DetectedProtocolName:    "proto",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalBytes:              30,
 					LocalIp:                 "10.0.0.1",
 					LocalOrigin:             true,
@@ -97,8 +99,10 @@ func TestStats(t *testing.T) {
 			LogTimeEnd: 3661,
 			Stats: []stats.Statistic{
 				{
-					DetectedApplicationName: "a",
-					DetectedProtocolName:    "b",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalBytes:              3,
 					LocalIp:                 "1.1.1.1",
 					LocalOrigin:             false,

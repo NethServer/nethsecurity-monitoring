@@ -36,8 +36,10 @@ func TestStoreSave(t *testing.T) {
 			LogTimeEnd: 3661, // Hour bucket: (3661 / 3600) * 3600 = 3600
 			Stats: []Statistic{
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.1",
 					OtherIp:                 "10.0.0.2",
 					LocalBytes:              100,
@@ -45,7 +47,9 @@ func TestStoreSave(t *testing.T) {
 					LocalOrigin:             true,
 				},
 				{
+					DetectedApplication:     20001,
 					DetectedApplicationName: "app2",
+					DetectedProtocol:        200,
 					DetectedProtocolName:    "proto2",
 					LocalIp:                 "10.0.0.3",
 					OtherIp:                 "10.0.0.4",
@@ -80,8 +84,10 @@ func TestStoreSave(t *testing.T) {
 			LogTimeEnd: 3661,
 			Stats: []Statistic{
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.1",
 					OtherIp:                 "10.0.0.2",
 					LocalBytes:              100,
@@ -96,8 +102,10 @@ func TestStoreSave(t *testing.T) {
 			LogTimeEnd: 3700,
 			Stats: []Statistic{
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.1",
 					OtherIp:                 "10.0.0.2",
 					LocalBytes:              50,
@@ -126,10 +134,10 @@ func TestStoreSave(t *testing.T) {
 		var localBytes, otherBytes int64
 		err = db.QueryRow(
 			`SELECT local_bytes, other_bytes FROM hourly_traffic
-			WHERE detected_application_name = ? AND detected_protocol_name = ?
+			WHERE detected_application = ? AND detected_protocol = ?
 			AND source_ip = ? AND destination_ip = ?`,
-			"app1",
-			"proto1",
+			10033,
+			196,
 			"10.0.0.1",
 			"10.0.0.2",
 		).Scan(&localBytes, &otherBytes)
@@ -153,8 +161,10 @@ func TestStoreSave(t *testing.T) {
 			LogTimeEnd: 3661,
 			Stats: []Statistic{
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.1",
 					OtherIp:                 "10.0.0.2",
 					LocalBytes:              100,
@@ -162,8 +172,10 @@ func TestStoreSave(t *testing.T) {
 					LocalOrigin:             true,
 				},
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.2",
 					OtherIp:                 "10.0.0.1",
 					LocalBytes:              50,
@@ -190,9 +202,9 @@ func TestStoreSave(t *testing.T) {
 		var sourceIp, destIp string
 		err = db.QueryRow(
 			`SELECT source_ip, destination_ip FROM hourly_traffic
-			WHERE detected_application_name = ? AND detected_protocol_name = ?`,
-			"app1",
-			"proto1",
+			WHERE detected_application = ? AND detected_protocol = ?`,
+			10033,
+			196,
 		).Scan(&sourceIp, &destIp)
 		if err != nil {
 			t.Fatal(err)
@@ -215,8 +227,10 @@ func TestStoreSave(t *testing.T) {
 			LogTimeEnd: 7322, // (7322 / 3600) * 3600 = 7200
 			Stats: []Statistic{
 				{
-					DetectedApplicationName: "app1",
-					DetectedProtocolName:    "proto1",
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
 					LocalIp:                 "10.0.0.1",
 					OtherIp:                 "10.0.0.2",
 					LocalBytes:              100,
@@ -249,7 +263,9 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	oldPayload := Payload{
 		LogTimeEnd: 1800, // Hour bucket: 0
 		Stats: []Statistic{{
+			DetectedApplication:     10033,
 			DetectedApplicationName: "old",
+			DetectedProtocol:        196,
 			DetectedProtocolName:    "old",
 			LocalIp:                 "10.0.0.1",
 			OtherIp:                 "10.0.0.2",
@@ -262,7 +278,9 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	newPayload := Payload{
 		LogTimeEnd: 36000, // Hour bucket: 36000
 		Stats: []Statistic{{
+			DetectedApplication:     20001,
 			DetectedApplicationName: "new",
+			DetectedProtocol:        200,
 			DetectedProtocolName:    "new",
 			LocalIp:                 "10.0.0.3",
 			OtherIp:                 "10.0.0.4",
