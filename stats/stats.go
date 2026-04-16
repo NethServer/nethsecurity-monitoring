@@ -41,7 +41,6 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Save(ctx context.Context, payload Payload) error {
-	// Calculate hour bucket: truncate log_time_end to the start of the hour (Unix UTC)
 	hourBucket := (payload.LogTimeEnd / 3600) * 3600
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -63,9 +62,10 @@ INSERT INTO hourly_traffic (
 	detected_protocol_name,
 	local_ip,
 	other_ip,
+	local_origin,
 	local_bytes,
 	other_bytes
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(
 	hour_bucket,
 	detected_application,
@@ -73,7 +73,8 @@ ON CONFLICT(
 	detected_protocol,
 	detected_protocol_name,
 	local_ip,
-	other_ip
+	other_ip,
+	local_origin
 )
 DO UPDATE SET
 	local_bytes = local_bytes + excluded.local_bytes,
@@ -94,6 +95,7 @@ DO UPDATE SET
 			stat.DetectedProtocolName,
 			stat.LocalIp,
 			stat.OtherIp,
+			boolToInt(stat.LocalOrigin),
 			stat.LocalBytes,
 			stat.OtherBytes,
 		)
@@ -119,4 +121,12 @@ func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	}
 
 	return nil
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+
+	return 0
 }

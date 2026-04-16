@@ -31,7 +31,8 @@ paths:
       summary: Receive statistics payloads
       description: |
         Receives a JSON payload containing batched statistics entries and
-        persists each statistic row into SQLite.
+        persists each statistic row into SQLite, along with a per-hour IP to
+        resolved-name cache used for UI enrichment.
       operationId: receiveStats
       requestBody:
         required: true
@@ -257,7 +258,8 @@ components:
       type: object
       description: |
         Single statistic entry from the incoming batch representing one flow's
-        hourly aggregated traffic.
+        hourly aggregated traffic. Traffic direction is preserved via
+        `local_origin`.
       required:
         - detected_application
         - detected_application_name

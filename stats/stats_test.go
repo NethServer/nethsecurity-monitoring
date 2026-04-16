@@ -33,7 +33,7 @@ func TestStoreSave(t *testing.T) {
 		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
-			LogTimeEnd: 3661, // Hour bucket: (3661 / 3600) * 3600 = 3600
+			LogTimeEnd: 3661,
 			Stats: []Statistic{
 				{
 					DetectedApplication:     10033,
@@ -79,40 +79,34 @@ func TestStoreSave(t *testing.T) {
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
-		// First payload
 		payload1 := Payload{
 			LogTimeEnd: 3661,
-			Stats: []Statistic{
-				{
-					DetectedApplication:     10033,
-					DetectedApplicationName: "netify.netify",
-					DetectedProtocol:        196,
-					DetectedProtocolName:    "HTTP/S",
-					LocalIp:                 "10.0.0.1",
-					OtherIp:                 "10.0.0.2",
-					LocalBytes:              100,
-					OtherBytes:              200,
-					LocalOrigin:             true,
-				},
-			},
+			Stats: []Statistic{{
+				DetectedApplication:     10033,
+				DetectedApplicationName: "netify.netify",
+				DetectedProtocol:        196,
+				DetectedProtocolName:    "HTTP/S",
+				LocalIp:                 "10.0.0.1",
+				OtherIp:                 "10.0.0.2",
+				LocalBytes:              100,
+				OtherBytes:              200,
+				LocalOrigin:             true,
+			}},
 		}
 
-		// Second payload with same key, should aggregate
 		payload2 := Payload{
 			LogTimeEnd: 3700,
-			Stats: []Statistic{
-				{
-					DetectedApplication:     10033,
-					DetectedApplicationName: "netify.netify",
-					DetectedProtocol:        196,
-					DetectedProtocolName:    "HTTP/S",
-					LocalIp:                 "10.0.0.1",
-					OtherIp:                 "10.0.0.2",
-					LocalBytes:              50,
-					OtherBytes:              75,
-					LocalOrigin:             true,
-				},
-			},
+			Stats: []Statistic{{
+				DetectedApplication:     10033,
+				DetectedApplicationName: "netify.netify",
+				DetectedProtocol:        196,
+				DetectedProtocolName:    "HTTP/S",
+				LocalIp:                 "10.0.0.1",
+				OtherIp:                 "10.0.0.2",
+				LocalBytes:              50,
+				OtherBytes:              75,
+				LocalOrigin:             false,
+			}},
 		}
 
 		if err := store.Save(context.Background(), payload1); err != nil {
@@ -127,28 +121,47 @@ func TestStoreSave(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if count != 1 {
-			t.Fatalf("expected 1 aggregated row, got %d", count)
+		if count != 2 {
+			t.Fatalf("expected 2 rows when directions differ, got %d", count)
 		}
 
 		var localBytes, otherBytes int64
 		err = db.QueryRow(
 			`SELECT local_bytes, other_bytes FROM hourly_traffic
 			WHERE detected_application = ? AND detected_protocol = ?
-			AND local_ip = ? AND other_ip = ?`,
+			AND local_ip = ? AND other_ip = ? AND local_origin = ?`,
 			10033,
 			196,
 			"10.0.0.1",
 			"10.0.0.2",
+			1,
 		).Scan(&localBytes, &otherBytes)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if localBytes != 150 {
-			t.Fatalf("expected 150 local_bytes, got %d", localBytes)
+		if localBytes != 100 || otherBytes != 200 {
+			t.Fatalf(
+				"expected first direction row to remain unchanged, got %d/%d",
+				localBytes,
+				otherBytes,
+			)
 		}
-		if otherBytes != 275 {
-			t.Fatalf("expected 275 other_bytes, got %d", otherBytes)
+
+		err = db.QueryRow(
+			`SELECT local_bytes, other_bytes FROM hourly_traffic
+			WHERE detected_application = ? AND detected_protocol = ?
+			AND local_ip = ? AND other_ip = ? AND local_origin = ?`,
+			10033,
+			196,
+			"10.0.0.1",
+			"10.0.0.2",
+			0,
+		).Scan(&localBytes, &otherBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if localBytes != 50 || otherBytes != 75 {
+			t.Fatalf("expected second direction row, got %d/%d", localBytes, otherBytes)
 		}
 	})
 
@@ -158,20 +171,18 @@ func TestStoreSave(t *testing.T) {
 		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
-			LogTimeEnd: 7322, // (7322 / 3600) * 3600 = 7200
-			Stats: []Statistic{
-				{
-					DetectedApplication:     10033,
-					DetectedApplicationName: "netify.netify",
-					DetectedProtocol:        196,
-					DetectedProtocolName:    "HTTP/S",
-					LocalIp:                 "10.0.0.1",
-					OtherIp:                 "10.0.0.2",
-					LocalBytes:              100,
-					OtherBytes:              200,
-					LocalOrigin:             true,
-				},
-			},
+			LogTimeEnd: 7322,
+			Stats: []Statistic{{
+				DetectedApplication:     10033,
+				DetectedApplicationName: "netify.netify",
+				DetectedProtocol:        196,
+				DetectedProtocolName:    "HTTP/S",
+				LocalIp:                 "10.0.0.1",
+				OtherIp:                 "10.0.0.2",
+				LocalBytes:              100,
+				OtherBytes:              200,
+				LocalOrigin:             true,
+			}},
 		}
 
 		if err := store.Save(context.Background(), payload); err != nil {
@@ -195,7 +206,7 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	defer db.Close()    //nolint:errcheck
 
 	oldPayload := Payload{
-		LogTimeEnd: 1800, // Hour bucket: 0
+		LogTimeEnd: 1800,
 		Stats: []Statistic{{
 			DetectedApplication:     10033,
 			DetectedApplicationName: "old",
@@ -210,7 +221,7 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	}
 
 	newPayload := Payload{
-		LogTimeEnd: 36000, // Hour bucket: 36000
+		LogTimeEnd: 36000,
 		Stats: []Statistic{{
 			DetectedApplication:     20001,
 			DetectedApplicationName: "new",
