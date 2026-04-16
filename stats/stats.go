@@ -61,8 +61,8 @@ INSERT INTO hourly_traffic (
 	detected_application_name,
 	detected_protocol,
 	detected_protocol_name,
-	source_ip,
-	destination_ip,
+	local_ip,
+	other_ip,
 	local_bytes,
 	other_bytes
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -72,8 +72,8 @@ ON CONFLICT(
 	detected_application_name,
 	detected_protocol,
 	detected_protocol_name,
-	source_ip,
-	destination_ip
+	local_ip,
+	other_ip
 )
 DO UPDATE SET
 	local_bytes = local_bytes + excluded.local_bytes,
@@ -85,17 +85,6 @@ DO UPDATE SET
 	defer stmt.Close() //nolint:errcheck
 
 	for _, stat := range payload.Stats {
-		// Direction logic: local_origin=true means local_ip initiated the connection
-		// In that case, local_ip is the source, other_ip is the destination
-		var sourceIp, destIp string
-		if stat.LocalOrigin {
-			sourceIp = stat.LocalIp
-			destIp = stat.OtherIp
-		} else {
-			sourceIp = stat.OtherIp
-			destIp = stat.LocalIp
-		}
-
 		_, err = stmt.ExecContext(
 			ctx,
 			hourBucket,
@@ -103,8 +92,8 @@ DO UPDATE SET
 			stat.DetectedApplicationName,
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
-			sourceIp,
-			destIp,
+			stat.LocalIp,
+			stat.OtherIp,
 			stat.LocalBytes,
 			stat.OtherBytes,
 		)

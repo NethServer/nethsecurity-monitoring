@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS hourly_traffic (
 	detected_application_name TEXT NOT NULL,
 	detected_protocol INTEGER NOT NULL,
 	detected_protocol_name TEXT NOT NULL,
-	source_ip TEXT NOT NULL,
-	destination_ip TEXT NOT NULL,
+	local_ip TEXT NOT NULL,
+	other_ip TEXT NOT NULL,
 	local_bytes INTEGER NOT NULL DEFAULT 0,
 	other_bytes INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS hourly_traffic (
 		detected_application_name,
 		detected_protocol,
 		detected_protocol_name,
-		source_ip,
-		destination_ip
+		local_ip,
+		other_ip
 	)
 );
 

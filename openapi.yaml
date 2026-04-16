@@ -288,9 +288,7 @@ components:
         local_bytes:
           type: integer
           format: int64
-          description: |
-            Bytes sent from the local IP (source if local_origin=true, else
-            destination).
+          description: Bytes sent from the local IP.
           example: 52
         local_ip:
           type: string
@@ -300,15 +298,11 @@ components:
           type: boolean
           description: |
             `true` when the local IP initiated the connection.
-            When true, local_ip is the source; when false, it is the
-            destination.
           example: true
         other_bytes:
           type: integer
           format: int64
-          description: |
-            Bytes sent from the remote IP (destination if local_origin=true,
-            else source).
+          description: Bytes sent from the remote IP.
           example: 52
         other_ip:
           type: string

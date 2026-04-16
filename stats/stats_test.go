@@ -135,7 +135,7 @@ func TestStoreSave(t *testing.T) {
 		err = db.QueryRow(
 			`SELECT local_bytes, other_bytes FROM hourly_traffic
 			WHERE detected_application = ? AND detected_protocol = ?
-			AND source_ip = ? AND destination_ip = ?`,
+			AND local_ip = ? AND other_ip = ?`,
 			10033,
 			196,
 			"10.0.0.1",
@@ -149,72 +149,6 @@ func TestStoreSave(t *testing.T) {
 		}
 		if otherBytes != 275 {
 			t.Fatalf("expected 275 other_bytes, got %d", otherBytes)
-		}
-	})
-
-	t.Run("applies direction logic correctly", func(t *testing.T) {
-		store, db := setupStore(t)
-		defer store.Close() //nolint:errcheck
-		defer db.Close()    //nolint:errcheck
-
-		payload := Payload{
-			LogTimeEnd: 3661,
-			Stats: []Statistic{
-				{
-					DetectedApplication:     10033,
-					DetectedApplicationName: "netify.netify",
-					DetectedProtocol:        196,
-					DetectedProtocolName:    "HTTP/S",
-					LocalIp:                 "10.0.0.1",
-					OtherIp:                 "10.0.0.2",
-					LocalBytes:              100,
-					OtherBytes:              200,
-					LocalOrigin:             true,
-				},
-				{
-					DetectedApplication:     10033,
-					DetectedApplicationName: "netify.netify",
-					DetectedProtocol:        196,
-					DetectedProtocolName:    "HTTP/S",
-					LocalIp:                 "10.0.0.2",
-					OtherIp:                 "10.0.0.1",
-					LocalBytes:              50,
-					OtherBytes:              75,
-					LocalOrigin:             false,
-				},
-			},
-		}
-
-		if err := store.Save(context.Background(), payload); err != nil {
-			t.Fatal(err)
-		}
-
-		// Both should aggregate to the same row (same source/dest regardless of direction)
-		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM hourly_traffic").Scan(&count)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if count != 1 {
-			t.Fatalf("expected 1 aggregated row, got %d", count)
-		}
-
-		var sourceIp, destIp string
-		err = db.QueryRow(
-			`SELECT source_ip, destination_ip FROM hourly_traffic
-			WHERE detected_application = ? AND detected_protocol = ?`,
-			10033,
-			196,
-		).Scan(&sourceIp, &destIp)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if sourceIp != "10.0.0.1" || destIp != "10.0.0.2" {
-			t.Fatalf(
-				"expected source 10.0.0.1 and dest 10.0.0.2, got source %s and dest %s",
-				sourceIp,
-				destIp,
-			)
 		}
 	})
 
