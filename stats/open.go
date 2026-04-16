@@ -10,38 +10,18 @@ import (
 )
 
 const initSchema = `
-CREATE TABLE IF NOT EXISTS stats_timestamps (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	log_time_start INTEGER NOT NULL,
-	log_time_end INTEGER NOT NULL,
-	UNIQUE(log_time_start, log_time_end)
-);
-
-CREATE TABLE IF NOT EXISTS stats (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	stats_timestamp_id INTEGER NOT NULL,
-	detected_application INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS hourly_traffic (
+	hour_bucket INTEGER NOT NULL,
 	detected_application_name TEXT NOT NULL,
-	detected_protocol INTEGER NOT NULL,
 	detected_protocol_name TEXT NOT NULL,
-	internal INTEGER NOT NULL,
-	ip_protocol INTEGER NOT NULL,
-	ip_version INTEGER NOT NULL,
-	local_bytes INTEGER NOT NULL,
-	local_ip TEXT NOT NULL,
-	local_mac TEXT NOT NULL,
-	local_origin INTEGER NOT NULL,
-	other_bytes INTEGER NOT NULL,
-	other_ip TEXT NOT NULL,
-	other_port INTEGER NOT NULL,
-	other_type TEXT NOT NULL,
-	packets INTEGER NOT NULL,
-	FOREIGN KEY(stats_timestamp_id) REFERENCES stats_timestamps(id) ON DELETE CASCADE
+	source_ip TEXT NOT NULL,
+	destination_ip TEXT NOT NULL,
+	local_bytes INTEGER NOT NULL DEFAULT 0,
+	other_bytes INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (hour_bucket, detected_application_name, detected_protocol_name, source_ip, destination_ip)
 );
 
-CREATE INDEX IF NOT EXISTS idx_stats_timestamps_log_time_start ON stats_timestamps (log_time_start);
-CREATE INDEX IF NOT EXISTS idx_stats_timestamps_log_time_end ON stats_timestamps (log_time_end);
-CREATE INDEX IF NOT EXISTS idx_stats_stats_timestamp_id ON stats (stats_timestamp_id);
+CREATE INDEX IF NOT EXISTS idx_hourly_traffic_hour_bucket ON hourly_traffic (hour_bucket);
 `
 
 func Open(ctx context.Context, dbPath string) (*Store, error) {

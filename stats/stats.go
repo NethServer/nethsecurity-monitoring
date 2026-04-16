@@ -7,30 +7,18 @@ import (
 )
 
 type Payload struct {
-	LogTimeEnd   int64       `json:"log_time_end"`
-	LogTimeStart int64       `json:"log_time_start"`
-	Stats        []Statistic `json:"stats"`
+	LogTimeEnd int64       `json:"log_time_end"`
+	Stats      []Statistic `json:"stats"`
 }
 
 type Statistic struct {
-	DetectedApplication     int      `json:"detected_application"`
-	DetectedApplicationName string   `json:"detected_application_name"`
-	DetectedProtocol        int      `json:"detected_protocol"`
-	DetectedProtocolName    string   `json:"detected_protocol_name"`
-	Digests                 []string `json:"digests"`
-	Interface               string   `json:"interface"`
-	Internal                bool     `json:"internal"`
-	IpProtocol              int      `json:"ip_protocol"`
-	IpVersion               int      `json:"ip_version"`
-	LocalBytes              int64    `json:"local_bytes"`
-	LocalIp                 string   `json:"local_ip"`
-	LocalMac                string   `json:"local_mac"`
-	LocalOrigin             bool     `json:"local_origin"`
-	OtherBytes              int64    `json:"other_bytes"`
-	OtherIp                 string   `json:"other_ip"`
-	OtherPort               int      `json:"other_port"`
-	OtherType               string   `json:"other_type"`
-	Packets                 int      `json:"packets"`
+	DetectedApplicationName string `json:"detected_application_name"`
+	DetectedProtocolName    string `json:"detected_protocol_name"`
+	LocalIp                 string `json:"local_ip"`
+	OtherIp                 string `json:"other_ip"`
+	LocalBytes              int64  `json:"local_bytes"`
+	OtherBytes              int64  `json:"other_bytes"`
+	LocalOrigin             bool   `json:"local_origin"`
 }
 
 type Store struct {
@@ -51,6 +39,9 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Save(ctx context.Context, payload Payload) error {
+	// Calculate hour bucket: truncate log_time_end to the start of the hour (Unix UTC)
+	hourBucket := (payload.LogTimeEnd / 3600) * 3600
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin stats transaction: %w", err)
@@ -61,74 +52,50 @@ func (s *Store) Save(ctx context.Context, payload Payload) error {
 		}
 	}()
 
-	_, err = tx.ExecContext(ctx, `
-INSERT OR IGNORE INTO stats_timestamps (
-	log_time_start,
-	log_time_end
-) VALUES (?, ?)
-`, payload.LogTimeStart, payload.LogTimeEnd)
-	if err != nil {
-		return fmt.Errorf("insert stats timestamps: %w", err)
-	}
-
-	var timestampID int64
-	err = tx.QueryRowContext(ctx, `
-SELECT id FROM stats_timestamps
-WHERE log_time_start = ? AND log_time_end = ?
-`, payload.LogTimeStart, payload.LogTimeEnd).Scan(&timestampID)
-	if err != nil {
-		return fmt.Errorf("load stats timestamp: %w", err)
-	}
-
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO stats (
-	stats_timestamp_id,
-	detected_application,
+INSERT INTO hourly_traffic (
+	hour_bucket,
 	detected_application_name,
-	detected_protocol,
 	detected_protocol_name,
-	internal,
-	ip_protocol,
-	ip_version,
+	source_ip,
+	destination_ip,
 	local_bytes,
-	local_ip,
-	local_mac,
-	local_origin,
-	other_bytes,
-	other_ip,
-	other_port,
-	other_type,
-	packets
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	other_bytes
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(hour_bucket, detected_application_name, detected_protocol_name, source_ip, destination_ip)
+DO UPDATE SET
+	local_bytes = local_bytes + excluded.local_bytes,
+	other_bytes = other_bytes + excluded.other_bytes
 `)
 	if err != nil {
-		return fmt.Errorf("prepare stats insert: %w", err)
+		return fmt.Errorf("prepare hourly traffic upsert: %w", err)
 	}
-	defer stmt.Close()
+	defer stmt.Close() //nolint:errcheck
 
 	for _, stat := range payload.Stats {
+		// Direction logic: local_origin=true means local_ip initiated the connection
+		// In that case, local_ip is the source, other_ip is the destination
+		var sourceIp, destIp string
+		if stat.LocalOrigin {
+			sourceIp = stat.LocalIp
+			destIp = stat.OtherIp
+		} else {
+			sourceIp = stat.OtherIp
+			destIp = stat.LocalIp
+		}
+
 		_, err = stmt.ExecContext(
 			ctx,
-			timestampID,
-			stat.DetectedApplication,
+			hourBucket,
 			stat.DetectedApplicationName,
-			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
-			boolToInt(stat.Internal),
-			stat.IpProtocol,
-			stat.IpVersion,
+			sourceIp,
+			destIp,
 			stat.LocalBytes,
-			stat.LocalIp,
-			stat.LocalMac,
-			boolToInt(stat.LocalOrigin),
 			stat.OtherBytes,
-			stat.OtherIp,
-			stat.OtherPort,
-			stat.OtherType,
-			stat.Packets,
 		)
 		if err != nil {
-			return fmt.Errorf("insert stats entry: %w", err)
+			return fmt.Errorf("upsert hourly traffic: %w", err)
 		}
 	}
 
@@ -142,19 +109,11 @@ INSERT INTO stats (
 func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	if _, err := s.db.ExecContext(
 		ctx,
-		`DELETE FROM stats_timestamps WHERE log_time_end < ?`,
+		`DELETE FROM hourly_traffic WHERE hour_bucket < ?`,
 		cutoff,
 	); err != nil {
-		return fmt.Errorf("delete expired stats: %w", err)
+		return fmt.Errorf("delete expired traffic: %w", err)
 	}
 
 	return nil
-}
-
-func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-
-	return 0
 }

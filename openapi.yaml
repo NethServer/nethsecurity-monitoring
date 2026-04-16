@@ -41,27 +41,14 @@ paths:
               $ref: "#/components/schemas/StatsPayload"
             example:
               log_time_end: 1775133664
-              log_time_start: 1775133604
               stats:
-                - detected_application: 10450
-                  detected_application_name: 10450.netify.sentry-io
-                  detected_protocol: 196
+                - detected_application_name: 10450.netify.sentry-io
                   detected_protocol_name: HTTP/S
-                  digests:
-                    - c27a12eb6f4cc8c672ab5b6025141c381636f08a
-                  interface: nfqueue
-                  internal: true
-                  ip_protocol: 6
-                  ip_version: 4
                   local_bytes: 52
                   local_ip: 10.70.148.2
-                  local_mac: ""
                   local_origin: true
                   other_bytes: 52
                   other_ip: 34.160.81.0
-                  other_port: 443
-                  other_type: remote
-                  packets: 2
       responses:
         "200":
           description: Payload accepted and persisted.
@@ -252,17 +239,13 @@ components:
       description: Batched statistics payload sent by the stats source.
       required:
         - log_time_end
-        - log_time_start
         - stats
       properties:
         log_time_end:
           type: integer
           format: int64
+          description: Unix timestamp (seconds, UTC) marking the end of the hour being reported.
           example: 1775133664
-        log_time_start:
-          type: integer
-          format: int64
-          example: 1775133604
         stats:
           type: array
           items:
@@ -270,67 +253,48 @@ components:
 
     Statistic:
       type: object
-      description: Single statistic entry from the incoming batch.
+      description: Single statistic entry from the incoming batch representing one flow's hourly aggregated traffic.
       required:
-        - detected_application
         - detected_application_name
-        - detected_protocol
         - detected_protocol_name
-        - digests
-        - interface
-        - internal
-        - ip_protocol
-        - ip_version
         - local_bytes
         - local_ip
-        - local_mac
         - local_origin
         - other_bytes
         - other_ip
-        - other_port
-        - other_type
-        - packets
       properties:
-        detected_application:
-          type: integer
         detected_application_name:
           type: string
-        detected_protocol:
-          type: integer
+          description: Application name identified by DPI.
+          example: YouTube
         detected_protocol_name:
           type: string
-        digests:
-          type: array
-          items:
-            type: string
-        interface:
-          type: string
-        internal:
-          type: boolean
-        ip_protocol:
-          type: integer
-        ip_version:
-          type: integer
+          description: Protocol name identified by DPI.
+          example: TLS
         local_bytes:
           type: integer
           format: int64
+          description: Bytes sent from the local IP (source if local_origin=true, else destination).
+          example: 52
         local_ip:
           type: string
-        local_mac:
-          type: string
+          description: IP address of the local endpoint.
+          example: "10.70.148.2"
         local_origin:
           type: boolean
+          description: |
+            `true` when the local IP initiated the connection.
+            When true, local_ip is the source; when false, it is the destination.
+          example: true
         other_bytes:
           type: integer
           format: int64
+          description: Bytes sent from the remote IP (destination if local_origin=true, else source).
+          example: 52
         other_ip:
           type: string
-        other_port:
-          type: integer
-        other_type:
-          type: string
-        packets:
-          type: integer
+          description: IP address of the remote endpoint.
+          example: "34.160.81.0"
 
     # -------------------------------------------------------------------------
     # Flow event envelope

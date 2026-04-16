@@ -40,21 +40,16 @@ func TestStats(t *testing.T) {
 		app := setupStatsApi(t, saver)
 
 		sample := stats.Payload{
-			LogTimeStart: 1,
-			LogTimeEnd:   2,
+			LogTimeEnd: 3661,
 			Stats: []stats.Statistic{
 				{
-					DetectedApplication:     10,
 					DetectedApplicationName: "app",
-					DetectedProtocol:        20,
 					DetectedProtocolName:    "proto",
-					Internal:                true,
 					LocalBytes:              30,
 					LocalIp:                 "10.0.0.1",
 					LocalOrigin:             true,
 					OtherBytes:              40,
 					OtherIp:                 "10.0.0.2",
-					OtherType:               "remote",
 				},
 			},
 		}
@@ -73,7 +68,7 @@ func TestStats(t *testing.T) {
 		}
 		assert.Equal(t, 200, res.StatusCode)
 		assert.Equal(t, 1, len(saver.payloads))
-		assert.Equal(t, sample.LogTimeStart, saver.payloads[0].LogTimeStart)
+		assert.Equal(t, sample.LogTimeEnd, saver.payloads[0].LogTimeEnd)
 		assert.Equal(t, len(sample.Stats), len(saver.payloads[0].Stats))
 	})
 
@@ -83,7 +78,7 @@ func TestStats(t *testing.T) {
 		req := httptest.NewRequest(
 			http.MethodPost,
 			"/stats",
-			bytes.NewBufferString(`{"log_time_start":"bad"}`),
+			bytes.NewBufferString(`{"log_time_end":"bad"}`),
 		)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -99,21 +94,16 @@ func TestStats(t *testing.T) {
 		app := setupStatsApi(t, saver)
 
 		payload := stats.Payload{
-			LogTimeStart: 1,
-			LogTimeEnd:   2,
+			LogTimeEnd: 3661,
 			Stats: []stats.Statistic{
 				{
-					DetectedApplication:     1,
 					DetectedApplicationName: "a",
-					DetectedProtocol:        2,
 					DetectedProtocolName:    "b",
-					Internal:                true,
 					LocalBytes:              3,
 					LocalIp:                 "1.1.1.1",
 					LocalOrigin:             false,
 					OtherBytes:              4,
 					OtherIp:                 "2.2.2.2",
-					OtherType:               "remote",
 				},
 			},
 		}
@@ -142,7 +132,7 @@ func TestStats(t *testing.T) {
 		req := httptest.NewRequest(
 			http.MethodPost,
 			"/stats",
-			bytes.NewReader([]byte(`{"log_time_start":1,"log_time_end":2,"stats":[]}`)),
+			bytes.NewReader([]byte(`{"log_time_end":3661,"stats":[]}`)),
 		)
 		req.Header.Set("Content-Type", "application/json")
 

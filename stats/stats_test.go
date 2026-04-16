@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatal(err)
 	}
 
-	store, err := Open(t.Context(), dbPath)
+	store, err := Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,159 +27,216 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 }
 
 func TestStoreSave(t *testing.T) {
-	t.Run("stores one row per stat", func(t *testing.T) {
+	t.Run("stores hourly traffic aggregated by key", func(t *testing.T) {
 		store, db := setupStore(t)
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
-			LogTimeStart: 1,
-			LogTimeEnd:   2,
+			LogTimeEnd: 3661, // Hour bucket: (3661 / 3600) * 3600 = 3600
 			Stats: []Statistic{
 				{
-					DetectedApplication:     10,
-					DetectedApplicationName: "app",
-					DetectedProtocol:        20,
-					DetectedProtocolName:    "proto",
-					Internal:                true,
-					LocalBytes:              30,
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
 					LocalIp:                 "10.0.0.1",
-					LocalOrigin:             true,
-					OtherBytes:              40,
 					OtherIp:                 "10.0.0.2",
-					OtherType:               "remote",
+					LocalBytes:              100,
+					OtherBytes:              200,
+					LocalOrigin:             true,
 				},
 				{
-					DetectedApplication:     11,
 					DetectedApplicationName: "app2",
-					DetectedProtocol:        21,
 					DetectedProtocolName:    "proto2",
-					Internal:                false,
-					LocalBytes:              31,
 					LocalIp:                 "10.0.0.3",
-					LocalOrigin:             false,
-					OtherBytes:              41,
 					OtherIp:                 "10.0.0.4",
-					OtherType:               "local",
+					LocalBytes:              50,
+					OtherBytes:              75,
+					LocalOrigin:             false,
 				},
 			},
 		}
 
-		if err := store.Save(t.Context(), payload); err != nil {
+		if err := store.Save(context.Background(), payload); err != nil {
 			t.Fatal(err)
 		}
 
 		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
+		err := db.QueryRow("SELECT COUNT(*) FROM hourly_traffic").Scan(&count)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if count != 2 {
 			t.Fatalf("expected 2 rows, got %d", count)
 		}
+	})
 
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
+	t.Run("upserts aggregating bytes for duplicate keys", func(t *testing.T) {
+		store, db := setupStore(t)
+		defer store.Close() //nolint:errcheck
+		defer db.Close()    //nolint:errcheck
+
+		// First payload
+		payload1 := Payload{
+			LogTimeEnd: 3661,
+			Stats: []Statistic{
+				{
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
+					LocalIp:                 "10.0.0.1",
+					OtherIp:                 "10.0.0.2",
+					LocalBytes:              100,
+					OtherBytes:              200,
+					LocalOrigin:             true,
+				},
+			},
+		}
+
+		// Second payload with same key, should aggregate
+		payload2 := Payload{
+			LogTimeEnd: 3700,
+			Stats: []Statistic{
+				{
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
+					LocalIp:                 "10.0.0.1",
+					OtherIp:                 "10.0.0.2",
+					LocalBytes:              50,
+					OtherBytes:              75,
+					LocalOrigin:             true,
+				},
+			},
+		}
+
+		if err := store.Save(context.Background(), payload1); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Save(context.Background(), payload2); err != nil {
+			t.Fatal(err)
+		}
+
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM hourly_traffic").Scan(&count)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
-			t.Fatalf("expected 1 timestamp row, got %d", count)
+			t.Fatalf("expected 1 aggregated row, got %d", count)
+		}
+
+		var localBytes, otherBytes int64
+		err = db.QueryRow(
+			`SELECT local_bytes, other_bytes FROM hourly_traffic
+			WHERE detected_application_name = ? AND detected_protocol_name = ?
+			AND source_ip = ? AND destination_ip = ?`,
+			"app1",
+			"proto1",
+			"10.0.0.1",
+			"10.0.0.2",
+		).Scan(&localBytes, &otherBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if localBytes != 150 {
+			t.Fatalf("expected 150 local_bytes, got %d", localBytes)
+		}
+		if otherBytes != 275 {
+			t.Fatalf("expected 275 other_bytes, got %d", otherBytes)
 		}
 	})
 
-	t.Run("reuses repeated timestamps", func(t *testing.T) {
+	t.Run("applies direction logic correctly", func(t *testing.T) {
 		store, db := setupStore(t)
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
-			LogTimeStart: 5,
-			LogTimeEnd:   6,
+			LogTimeEnd: 3661,
 			Stats: []Statistic{
 				{
-					DetectedApplication:     1,
-					DetectedApplicationName: "a",
-					DetectedProtocol:        2,
-					DetectedProtocolName:    "b",
-					Internal:                true,
-					LocalBytes:              3,
-					LocalIp:                 "1.1.1.1",
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
+					LocalIp:                 "10.0.0.1",
+					OtherIp:                 "10.0.0.2",
+					LocalBytes:              100,
+					OtherBytes:              200,
+					LocalOrigin:             true,
+				},
+				{
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
+					LocalIp:                 "10.0.0.2",
+					OtherIp:                 "10.0.0.1",
+					LocalBytes:              50,
+					OtherBytes:              75,
 					LocalOrigin:             false,
-					OtherBytes:              4,
-					OtherIp:                 "2.2.2.2",
-					OtherType:               "remote",
 				},
 			},
 		}
 
-		if err := store.Save(t.Context(), payload); err != nil {
-			t.Fatal(err)
-		}
-		if err := store.Save(t.Context(), payload); err != nil {
+		if err := store.Save(context.Background(), payload); err != nil {
 			t.Fatal(err)
 		}
 
+		// Both should aggregate to the same row (same source/dest regardless of direction)
 		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 2 {
-			t.Fatalf("expected 2 rows, got %d", count)
-		}
-
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
+		err := db.QueryRow("SELECT COUNT(*) FROM hourly_traffic").Scan(&count)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
-			t.Fatalf("expected 1 timestamp row, got %d", count)
+			t.Fatalf("expected 1 aggregated row, got %d", count)
+		}
+
+		var sourceIp, destIp string
+		err = db.QueryRow(
+			`SELECT source_ip, destination_ip FROM hourly_traffic
+			WHERE detected_application_name = ? AND detected_protocol_name = ?`,
+			"app1",
+			"proto1",
+		).Scan(&sourceIp, &destIp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sourceIp != "10.0.0.1" || destIp != "10.0.0.2" {
+			t.Fatalf(
+				"expected source 10.0.0.1 and dest 10.0.0.2, got source %s and dest %s",
+				sourceIp,
+				destIp,
+			)
 		}
 	})
 
-	t.Run("cascades stats when timestamp is deleted", func(t *testing.T) {
+	t.Run("calculates hour bucket correctly", func(t *testing.T) {
 		store, db := setupStore(t)
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
 		payload := Payload{
-			LogTimeStart: 9,
-			LogTimeEnd:   10,
+			LogTimeEnd: 7322, // (7322 / 3600) * 3600 = 7200
 			Stats: []Statistic{
 				{
-					DetectedApplication:     1,
-					DetectedApplicationName: "a",
-					DetectedProtocol:        2,
-					DetectedProtocolName:    "b",
-					Internal:                true,
-					LocalBytes:              3,
-					LocalIp:                 "1.1.1.1",
-					LocalOrigin:             false,
-					OtherBytes:              4,
-					OtherIp:                 "2.2.2.2",
-					OtherType:               "remote",
+					DetectedApplicationName: "app1",
+					DetectedProtocolName:    "proto1",
+					LocalIp:                 "10.0.0.1",
+					OtherIp:                 "10.0.0.2",
+					LocalBytes:              100,
+					OtherBytes:              200,
+					LocalOrigin:             true,
 				},
 			},
 		}
 
-		if err := store.Save(t.Context(), payload); err != nil {
+		if err := store.Save(context.Background(), payload); err != nil {
 			t.Fatal(err)
 		}
 
-		if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		var hourBucket int64
+		err := db.QueryRow("SELECT hour_bucket FROM hourly_traffic").Scan(&hourBucket)
+		if err != nil {
 			t.Fatal(err)
 		}
-
-		if _, err := db.Exec(
-			"DELETE FROM stats_timestamps WHERE log_time_start = ? AND log_time_end = ?",
-			payload.LogTimeStart,
-			payload.LogTimeEnd,
-		); err != nil {
-			t.Fatal(err)
-		}
-
-		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 0 {
-			t.Fatalf("expected 0 rows after cascade, got %d", count)
+		if hourBucket != 7200 {
+			t.Fatalf("expected hour bucket 7200, got %d", hourBucket)
 		}
 	})
 }
@@ -189,64 +247,57 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	defer db.Close()    //nolint:errcheck
 
 	oldPayload := Payload{
-		LogTimeStart: 1,
-		LogTimeEnd:   2,
+		LogTimeEnd: 1800, // Hour bucket: 0
 		Stats: []Statistic{{
-			DetectedApplication:     1,
 			DetectedApplicationName: "old",
-			DetectedProtocol:        1,
 			DetectedProtocolName:    "old",
-			Internal:                true,
-			LocalBytes:              1,
 			LocalIp:                 "10.0.0.1",
-			LocalOrigin:             true,
-			OtherBytes:              1,
 			OtherIp:                 "10.0.0.2",
-			OtherType:               "remote",
+			LocalBytes:              100,
+			OtherBytes:              200,
+			LocalOrigin:             true,
 		}},
 	}
 
 	newPayload := Payload{
-		LogTimeStart: 10,
-		LogTimeEnd:   20,
+		LogTimeEnd: 36000, // Hour bucket: 36000
 		Stats: []Statistic{{
-			DetectedApplication:     2,
 			DetectedApplicationName: "new",
-			DetectedProtocol:        2,
 			DetectedProtocolName:    "new",
-			Internal:                true,
-			LocalBytes:              2,
 			LocalIp:                 "10.0.0.3",
-			LocalOrigin:             false,
-			OtherBytes:              2,
 			OtherIp:                 "10.0.0.4",
-			OtherType:               "local",
+			LocalBytes:              50,
+			OtherBytes:              75,
+			LocalOrigin:             false,
 		}},
 	}
 
-	if err := store.Save(t.Context(), oldPayload); err != nil {
+	if err := store.Save(context.Background(), oldPayload); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(t.Context(), newPayload); err != nil {
+	if err := store.Save(context.Background(), newPayload); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.DeleteOlderThan(t.Context(), 10); err != nil {
+	if err := store.DeleteOlderThan(context.Background(), 7200); err != nil {
 		t.Fatal(err)
 	}
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM stats_timestamps").Scan(&count); err != nil {
+	err := db.QueryRow("SELECT COUNT(*) FROM hourly_traffic").Scan(&count)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
-		t.Fatalf("expected 1 timestamp row, got %d", count)
+		t.Fatalf("expected 1 row after delete, got %d", count)
 	}
 
-	if err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count); err != nil {
+	var appName string
+	err = db.QueryRow("SELECT detected_application_name FROM hourly_traffic").Scan(&appName)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 stat row, got %d", count)
+	if appName != "new" {
+		t.Fatalf("expected 'new' to remain, got %q", appName)
 	}
 }
