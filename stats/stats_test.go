@@ -3,8 +3,10 @@ package stats
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -18,7 +20,7 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatal(err)
 	}
 
-	store, err := Open(context.Background(), dbPath)
+	store, err := Open(context.Background(), dbPath, NewReverseDNSCache())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,5 +264,126 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	}
 	if appName != "new" {
 		t.Fatalf("expected 'new' to remain, got %q", appName)
+	}
+}
+
+func TestReverseDNSCache(t *testing.T) {
+	t.Run("returns cached name and increments requests", func(t *testing.T) {
+		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
+			return []string{"example.local."}, nil
+		})
+
+		if got := cache.Resolve(context.Background(), "10.0.0.1"); got != "example.local" {
+			t.Fatalf("expected resolved name, got %q", got)
+		}
+		if got := cache.Resolve(context.Background(), "10.0.0.1"); got != "example.local" {
+			t.Fatalf("expected cached name, got %q", got)
+		}
+
+		cache.mu.Lock()
+		defer cache.mu.Unlock()
+		if cache.entries["10.0.0.1"].requests != 2 {
+			t.Fatalf("expected 2 requests, got %d", cache.entries["10.0.0.1"].requests)
+		}
+	})
+
+	t.Run("falls back to ip when lookup fails", func(t *testing.T) {
+		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
+			return nil, errors.New("boom")
+		})
+
+		if got := cache.Resolve(context.Background(), "10.0.0.2"); got != "10.0.0.2" {
+			t.Fatalf("expected ip fallback, got %q", got)
+		}
+	})
+
+	t.Run("prunes cold and expired entries", func(t *testing.T) {
+		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
+			return []string{"example.local."}, nil
+		})
+		cache.maxRecords = 2
+
+		cache.mu.Lock()
+		cache.entries["10.0.0.1"] = &reverseDNSCacheEntry{
+			ip:       "10.0.0.1",
+			name:     "a",
+			requests: 10,
+			addedAt:  time.Now().Add(-11 * time.Minute),
+		}
+		cache.entries["10.0.0.2"] = &reverseDNSCacheEntry{
+			ip:       "10.0.0.2",
+			name:     "b",
+			requests: 1,
+			addedAt:  time.Now(),
+		}
+		cache.entries["10.0.0.3"] = &reverseDNSCacheEntry{
+			ip:       "10.0.0.3",
+			name:     "c",
+			requests: 2,
+			addedAt:  time.Now(),
+		}
+		cache.mu.Unlock()
+
+		cache.Prune(time.Now())
+
+		cache.mu.Lock()
+		defer cache.mu.Unlock()
+		if _, ok := cache.entries["10.0.0.1"]; ok {
+			t.Fatal("expected expired entry to be removed")
+		}
+		if len(cache.entries) != 2 {
+			t.Fatalf("expected 2 entries after prune, got %d", len(cache.entries))
+		}
+	})
+}
+
+func TestStoreSaveResolvesNames(t *testing.T) {
+	store, db := setupStore(t)
+	defer store.Close() //nolint:errcheck
+	defer db.Close()    //nolint:errcheck
+
+	store.cache = NewReverseDNSCacheWithResolver(
+		func(_ context.Context, ip string) ([]string, error) {
+			switch ip {
+			case "10.0.0.1":
+				return []string{"local.example."}, nil
+			case "10.0.0.2":
+				return nil, errors.New("no ptr")
+			default:
+				return nil, errors.New("unexpected ip")
+			}
+		},
+	)
+
+	payload := Payload{
+		LogTimeEnd: 3661,
+		Stats: []Statistic{{
+			DetectedApplication:     10033,
+			DetectedApplicationName: "netify.netify",
+			DetectedProtocol:        196,
+			DetectedProtocolName:    "HTTP/S",
+			LocalIp:                 "10.0.0.1",
+			OtherIp:                 "10.0.0.2",
+			LocalBytes:              100,
+			OtherBytes:              200,
+			LocalOrigin:             true,
+		}},
+	}
+
+	if err := store.Save(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	var localName, otherName string
+	err := db.QueryRow("SELECT local_name, other_name FROM hourly_traffic").
+		Scan(&localName, &otherName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if localName != "local.example" {
+		t.Fatalf("expected resolved local name, got %q", localName)
+	}
+	if otherName != "10.0.0.2" {
+		t.Fatalf("expected ip fallback for other name, got %q", otherName)
 	}
 }

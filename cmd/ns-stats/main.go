@@ -19,6 +19,7 @@ import (
 )
 
 func main() {
+	// CLI setup
 	var addr string
 	flag.StringVar(&addr, "addr", ":8081", "address to listen on")
 
@@ -33,6 +34,7 @@ func main() {
 
 	flag.Parse()
 
+	// slog setup
 	var logLevel slog.Level
 	switch debugLevel {
 	case "debug":
@@ -46,20 +48,22 @@ func main() {
 	default:
 		log.Fatalf("Invalid log level: %s", debugLevel)
 	}
-
 	slog.SetLogLoggerLevel(logLevel)
 
-	store, err := stats.Open(context.Background(), dbPath)
+	cache := stats.NewReverseDNSCache()
+	store, err := stats.Open(context.Background(), dbPath, cache)
 	if err != nil {
 		log.Fatalf("Failed to initialize SQLite schema: %v", err)
 	}
 	defer store.Close() //nolint:errcheck
 
+	// Concurrent managers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	var wg sync.WaitGroup
 
+	// API Server
 	server := fiber.New(fiber.Config{
 		AppName:               "ns-stats",
 		DisableStartupMessage: true,
@@ -73,7 +77,6 @@ func main() {
 	}
 	server.Use(airRecover.New())
 	api.NewStatsApi(store).Setup(server)
-
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -82,6 +85,7 @@ func main() {
 		}
 	}()
 
+	// Pruner
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -96,6 +100,7 @@ func main() {
 				slog.Error("Failed to delete expired stats", "error", err)
 				return
 			}
+			store.PruneReverseDNSCache(time.Now())
 			slog.Debug("Pruned expired stats", "cutoff", cutoff)
 		}
 

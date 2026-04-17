@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS hourly_traffic (
 	detected_protocol INTEGER NOT NULL,
 	detected_protocol_name TEXT NOT NULL,
 	local_ip TEXT NOT NULL,
+	local_name TEXT NOT NULL,
 	other_ip TEXT NOT NULL,
+	other_name TEXT NOT NULL,
 	local_origin INTEGER NOT NULL,
 	local_bytes INTEGER NOT NULL DEFAULT 0,
 	other_bytes INTEGER NOT NULL DEFAULT 0,
@@ -36,7 +38,7 @@ CREATE TABLE IF NOT EXISTS hourly_traffic (
 CREATE INDEX IF NOT EXISTS idx_hourly_traffic_hour_bucket ON hourly_traffic (hour_bucket);
 `
 
-func Open(ctx context.Context, dbPath string) (*Store, error) {
+func Open(ctx context.Context, dbPath string, cache *ReverseDNSCache) (*Store, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
@@ -45,7 +47,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	store := &Store{db: db, dbPath: dbPath}
+	store := &Store{db: db, dbPath: dbPath, cache: cache}
 	if err := store.configure(ctx); err != nil {
 		_ = db.Close()
 		return nil, err

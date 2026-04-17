@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 type Payload struct {
@@ -26,6 +27,7 @@ type Statistic struct {
 type Store struct {
 	db     *sql.DB
 	dbPath string
+	cache  *ReverseDNSCache
 }
 
 type Saver interface {
@@ -61,11 +63,13 @@ INSERT INTO hourly_traffic (
 	detected_protocol,
 	detected_protocol_name,
 	local_ip,
+	local_name,
 	other_ip,
+	other_name,
 	local_origin,
 	local_bytes,
 	other_bytes
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(
 	hour_bucket,
 	detected_application,
@@ -77,6 +81,8 @@ ON CONFLICT(
 	local_origin
 )
 DO UPDATE SET
+	local_name = excluded.local_name,
+	other_name = excluded.other_name,
 	local_bytes = local_bytes + excluded.local_bytes,
 	other_bytes = other_bytes + excluded.other_bytes
 `)
@@ -86,6 +92,9 @@ DO UPDATE SET
 	defer stmt.Close() //nolint:errcheck
 
 	for _, stat := range payload.Stats {
+		localName := s.cache.Resolve(ctx, stat.LocalIp)
+		otherName := s.cache.Resolve(ctx, stat.OtherIp)
+
 		_, err = stmt.ExecContext(
 			ctx,
 			hourBucket,
@@ -94,7 +103,9 @@ DO UPDATE SET
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
 			stat.LocalIp,
+			localName,
 			stat.OtherIp,
+			otherName,
 			boolToInt(stat.LocalOrigin),
 			stat.LocalBytes,
 			stat.OtherBytes,
@@ -121,6 +132,14 @@ func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	}
 
 	return nil
+}
+
+func (s *Store) PruneReverseDNSCache(now time.Time) {
+	if s == nil {
+		return
+	}
+
+	s.cache.Prune(now)
 }
 
 func boolToInt(v bool) int {
