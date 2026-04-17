@@ -17,7 +17,7 @@ func NewStatsApi(saver stats.Saver) *StatsApi {
 
 func (s *StatsApi) Setup(app *fiber.App) {
 	app.Post("/stats", func(c *fiber.Ctx) error {
-		var payload stats.Payload
+		var payload stats.AggregatorPayload
 		if err := c.BodyParser(&payload); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "invalid stats payload: " + err.Error(),

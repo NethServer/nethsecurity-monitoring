@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/nethserver/nethsecurity-monitoring/reverse_dns"
 )
 
 func setupStore(t *testing.T) (*Store, *sql.DB) {
@@ -20,7 +23,15 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatal(err)
 	}
 
-	store, err := Open(context.Background(), dbPath, NewReverseDNSCache())
+	cache := reverse_dns.NewResolver(
+		func(ctx context.Context, ip string) ([]string, error) {
+			return net.DefaultResolver.LookupAddr(ctx, ip)
+		},
+		10*time.Minute,
+		10000,
+	)
+
+	store, err := NewStore(context.Background(), dbPath, cache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +45,9 @@ func TestStoreSave(t *testing.T) {
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
-		payload := Payload{
+		payload := AggregatorPayload{
 			LogTimeEnd: 3661,
-			Stats: []Statistic{
+			Stats: []AggregatorEntry{
 				{
 					DetectedApplication:     10033,
 					DetectedApplicationName: "netify.netify",
@@ -81,9 +92,9 @@ func TestStoreSave(t *testing.T) {
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
-		payload1 := Payload{
+		payload1 := AggregatorPayload{
 			LogTimeEnd: 3661,
-			Stats: []Statistic{{
+			Stats: []AggregatorEntry{{
 				DetectedApplication:     10033,
 				DetectedApplicationName: "netify.netify",
 				DetectedProtocol:        196,
@@ -96,9 +107,9 @@ func TestStoreSave(t *testing.T) {
 			}},
 		}
 
-		payload2 := Payload{
+		payload2 := AggregatorPayload{
 			LogTimeEnd: 3700,
-			Stats: []Statistic{{
+			Stats: []AggregatorEntry{{
 				DetectedApplication:     10033,
 				DetectedApplicationName: "netify.netify",
 				DetectedProtocol:        196,
@@ -172,9 +183,9 @@ func TestStoreSave(t *testing.T) {
 		defer store.Close() //nolint:errcheck
 		defer db.Close()    //nolint:errcheck
 
-		payload := Payload{
+		payload := AggregatorPayload{
 			LogTimeEnd: 7322,
-			Stats: []Statistic{{
+			Stats: []AggregatorEntry{{
 				DetectedApplication:     10033,
 				DetectedApplicationName: "netify.netify",
 				DetectedProtocol:        196,
@@ -207,9 +218,9 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	defer store.Close() //nolint:errcheck
 	defer db.Close()    //nolint:errcheck
 
-	oldPayload := Payload{
+	oldPayload := AggregatorPayload{
 		LogTimeEnd: 1800,
-		Stats: []Statistic{{
+		Stats: []AggregatorEntry{{
 			DetectedApplication:     10033,
 			DetectedApplicationName: "old",
 			DetectedProtocol:        196,
@@ -222,9 +233,9 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 		}},
 	}
 
-	newPayload := Payload{
+	newPayload := AggregatorPayload{
 		LogTimeEnd: 36000,
-		Stats: []Statistic{{
+		Stats: []AggregatorEntry{{
 			DetectedApplication:     20001,
 			DetectedApplicationName: "new",
 			DetectedProtocol:        200,
@@ -267,82 +278,12 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	}
 }
 
-func TestReverseDNSCache(t *testing.T) {
-	t.Run("returns cached name and increments requests", func(t *testing.T) {
-		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
-			return []string{"example.local."}, nil
-		})
-
-		if got := cache.Resolve(context.Background(), "10.0.0.1"); got != "example.local" {
-			t.Fatalf("expected resolved name, got %q", got)
-		}
-		if got := cache.Resolve(context.Background(), "10.0.0.1"); got != "example.local" {
-			t.Fatalf("expected cached name, got %q", got)
-		}
-
-		cache.mu.Lock()
-		defer cache.mu.Unlock()
-		if cache.entries["10.0.0.1"].requests != 2 {
-			t.Fatalf("expected 2 requests, got %d", cache.entries["10.0.0.1"].requests)
-		}
-	})
-
-	t.Run("falls back to ip when lookup fails", func(t *testing.T) {
-		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
-			return nil, errors.New("boom")
-		})
-
-		if got := cache.Resolve(context.Background(), "10.0.0.2"); got != "10.0.0.2" {
-			t.Fatalf("expected ip fallback, got %q", got)
-		}
-	})
-
-	t.Run("prunes cold and expired entries", func(t *testing.T) {
-		cache := NewReverseDNSCacheWithResolver(func(context.Context, string) ([]string, error) {
-			return []string{"example.local."}, nil
-		})
-		cache.maxRecords = 2
-
-		cache.mu.Lock()
-		cache.entries["10.0.0.1"] = &reverseDNSCacheEntry{
-			ip:       "10.0.0.1",
-			name:     "a",
-			requests: 10,
-			addedAt:  time.Now().Add(-11 * time.Minute),
-		}
-		cache.entries["10.0.0.2"] = &reverseDNSCacheEntry{
-			ip:       "10.0.0.2",
-			name:     "b",
-			requests: 1,
-			addedAt:  time.Now(),
-		}
-		cache.entries["10.0.0.3"] = &reverseDNSCacheEntry{
-			ip:       "10.0.0.3",
-			name:     "c",
-			requests: 2,
-			addedAt:  time.Now(),
-		}
-		cache.mu.Unlock()
-
-		cache.Prune(time.Now())
-
-		cache.mu.Lock()
-		defer cache.mu.Unlock()
-		if _, ok := cache.entries["10.0.0.1"]; ok {
-			t.Fatal("expected expired entry to be removed")
-		}
-		if len(cache.entries) != 2 {
-			t.Fatalf("expected 2 entries after prune, got %d", len(cache.entries))
-		}
-	})
-}
-
 func TestStoreSaveResolvesNames(t *testing.T) {
 	store, db := setupStore(t)
 	defer store.Close() //nolint:errcheck
 	defer db.Close()    //nolint:errcheck
 
-	store.cache = NewReverseDNSCacheWithResolver(
+	store.cache = reverse_dns.NewResolver(
 		func(_ context.Context, ip string) ([]string, error) {
 			switch ip {
 			case "10.0.0.1":
@@ -353,11 +294,13 @@ func TestStoreSaveResolvesNames(t *testing.T) {
 				return nil, errors.New("unexpected ip")
 			}
 		},
+		10*time.Minute,
+		10000,
 	)
 
-	payload := Payload{
+	payload := AggregatorPayload{
 		LogTimeEnd: 3661,
-		Stats: []Statistic{{
+		Stats: []AggregatorEntry{{
 			DetectedApplication:     10033,
 			DetectedApplicationName: "netify.netify",
 			DetectedProtocol:        196,

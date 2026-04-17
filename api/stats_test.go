@@ -15,11 +15,11 @@ import (
 )
 
 type mockSaver struct {
-	payloads []stats.Payload
+	payloads []stats.AggregatorPayload
 	err      error
 }
 
-func (m *mockSaver) Save(_ context.Context, payload stats.Payload) error {
+func (m *mockSaver) Save(_ context.Context, payload stats.AggregatorPayload) error {
 	m.payloads = append(m.payloads, payload)
 	return m.err
 }
@@ -39,9 +39,9 @@ func TestStats(t *testing.T) {
 		saver := &mockSaver{}
 		app := setupStatsApi(t, saver)
 
-		sample := stats.Payload{
+		sample := stats.AggregatorPayload{
 			LogTimeEnd: 3661,
-			Stats: []stats.Statistic{
+			Stats: []stats.AggregatorEntry{
 				{
 					DetectedApplication:     10033,
 					DetectedApplicationName: "netify.netify",
@@ -95,9 +95,9 @@ func TestStats(t *testing.T) {
 		saver := &mockSaver{}
 		app := setupStatsApi(t, saver)
 
-		payload := stats.Payload{
+		payload := stats.AggregatorPayload{
 			LogTimeEnd: 3661,
-			Stats: []stats.Statistic{
+			Stats: []stats.AggregatorEntry{
 				{
 					DetectedApplication:     10033,
 					DetectedApplicationName: "netify.netify",
