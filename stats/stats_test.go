@@ -70,17 +70,63 @@ func TestStoreSave(t *testing.T) {
 			},
 		}
 
+		upsertPayload := AggregatorPayload{
+			LogTimeEnd: 3700,
+			Stats: []AggregatorEntry{
+				{
+					DetectedApplication:     10033,
+					DetectedApplicationName: "netify.netify",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
+					IpProtocol:              6,
+					IpVersion:               4,
+					LocalBytes:              25,
+					LocalIp:                 "10.0.0.1",
+					LocalMac:                "XX:XX.XX:XX:XX:XX",
+					LocalOrigin:             true,
+					OtherBytes:              75,
+					OtherIp:                 "10.0.0.2",
+					OtherPort:               80,
+					OtherType:               "remote",
+				},
+			},
+		}
+
 		if err := store.Save(context.Background(), payload); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Save(context.Background(), upsertPayload); err != nil {
 			t.Fatal(err)
 		}
 
 		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM aggregator_stats").Scan(&count)
+		err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if count != 2 {
 			t.Fatalf("expected 2 rows, got %d", count)
+		}
+
+		var bytes int64
+		err = db.QueryRow(
+			`SELECT bytes FROM stats
+				 WHERE hour_bucket = ?
+				   AND local_ip = ?
+				   AND other_ip = ?
+				   AND detected_application = ?
+				   AND detected_protocol = ?`,
+			3600,
+			"10.0.0.1",
+			"10.0.0.2",
+			10033,
+			196,
+		).Scan(&bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes != 400 {
+			t.Fatalf("expected aggregated bytes to be 400, got %d", bytes)
 		}
 	})
 }
@@ -142,7 +188,7 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	}
 
 	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM aggregator_stats").Scan(&count)
+	err := db.QueryRow("SELECT COUNT(*) FROM stats").Scan(&count)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +197,7 @@ func TestStoreDeleteOlderThan(t *testing.T) {
 	}
 
 	var appName string
-	err = db.QueryRow("SELECT detected_application_name FROM aggregator_stats").Scan(&appName)
+	err = db.QueryRow("SELECT detected_application_name FROM stats").Scan(&appName)
 	if err != nil {
 		t.Fatal(err)
 	}

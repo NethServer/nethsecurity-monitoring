@@ -35,35 +35,18 @@ type AggregatorEntry struct {
 }
 
 const initSchema = `
-CREATE TABLE IF NOT EXISTS aggregator_stats (
-	log_time_end INTEGER NOT NULL,
-	detected_application INTEGER NOT NULL,
-	detected_application_name TEXT NOT NULL,
-	detected_protocol INTEGER NOT NULL,
-	detected_protocol_name TEXT NOT NULL,
-	ip_protocol INTEGER NOT NULL,
-	ip_version INTEGER NOT NULL,
-	local_bytes INTEGER NOT NULL,
-	local_ip TEXT NOT NULL,
-	local_mac TEXT NOT NULL,
-	local_origin INTEGER NOT NULL,
-	other_bytes INTEGER NOT NULL,
-	other_ip TEXT NOT NULL,
-	other_port INTEGER NOT NULL,
-	other_type TEXT NOT NULL,
-	packets INTEGER NOT NULL,
-	PRIMARY KEY (
-		log_time_end,
-		detected_application,
-		detected_protocol,
-		ip_protocol,
-		ip_version,
-		local_origin,
-		local_ip,
-		local_mac,
-		other_ip,
-	    other_type
-	)
+CREATE TABLE IF NOT EXISTS stats (
+    hour_bucket integer NOT NULL,
+    local_ip text NOT NULL,
+    local_name text,
+    other_ip text NOT NULL,
+    other_name text,
+	bytes integer NOT NULL,
+	detected_application integer NOT NULL,
+	detected_application_name integer NOT NULL,
+	detected_protocol integer NOT NULL,
+	detected_protocol_name integer NOT NULL,
+	PRIMARY KEY (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
 );
 `
 
@@ -132,49 +115,36 @@ func (s *Store) Save(ctx context.Context, payload AggregatorPayload) error {
 	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO aggregator_stats (
-	log_time_end,
-	detected_application,
-	detected_application_name,
-	detected_protocol,
-	detected_protocol_name,
-    ip_protocol,
-    ip_version,                   
-	local_bytes,                 
-	local_ip,
-	local_mac,
-	local_origin,
-	other_bytes,
-	other_ip,
-	other_port,
-	other_type,
-	packets
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO stats (
+   hour_bucket,
+   local_ip,
+   other_ip,
+   bytes,
+   detected_application,
+   detected_application_name,
+   detected_protocol,
+   detected_protocol_name
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
+DO UPDATE SET bytes = bytes + excluded.bytes
 `)
 	if err != nil {
 		return fmt.Errorf("prepare hourly traffic upsert: %w", err)
 	}
 	defer stmt.Close() //nolint:errcheck
 
+	hourBucket := (payload.LogTimeEnd / 3600) * 3600
 	for _, stat := range payload.Stats {
 		_, err = stmt.ExecContext(
 			ctx,
-			payload.LogTimeEnd,
+			hourBucket,
+			stat.LocalIp,
+			stat.OtherIp,
+			stat.LocalBytes+stat.OtherBytes,
 			stat.DetectedApplication,
 			stat.DetectedApplicationName,
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
-			stat.IpProtocol,
-			stat.IpVersion,
-			stat.LocalBytes,
-			stat.LocalIp,
-			stat.LocalMac,
-			boolToInt(stat.LocalOrigin),
-			stat.OtherBytes,
-			stat.OtherIp,
-			stat.OtherPort,
-			stat.OtherType,
-			stat.Packets,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert hourly traffic: %w", err)
@@ -190,7 +160,7 @@ INSERT INTO aggregator_stats (
 func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	if _, err := s.db.ExecContext(
 		ctx,
-		`DELETE FROM aggregator_stats WHERE log_time_end < ?`,
+		`DELETE FROM stats WHERE hour_bucket < ?`,
 		cutoff,
 	); err != nil {
 		return fmt.Errorf("delete expired traffic: %w", err)
@@ -199,10 +169,3 @@ func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	return nil
 }
 
-func boolToInt(v bool) int {
-	if v {
-		return 1
-	}
-
-	return 0
-}

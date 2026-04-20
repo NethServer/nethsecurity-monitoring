@@ -18,6 +18,8 @@ import (
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 
+const RETENTION = 2 * time.Hour
+
 func main() {
 	// CLI setup
 	var addr string
@@ -28,9 +30,6 @@ func main() {
 
 	var debugLevel string
 	flag.StringVar(&debugLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-
-	var retention time.Duration
-	flag.DurationVar(&retention, "retention", 24*time.Hour, "delete stats older than this duration")
 
 	flag.Parse()
 
@@ -50,13 +49,6 @@ func main() {
 	}
 	slog.SetLogLoggerLevel(logLevel)
 
-	/*cache := reverse_dns.NewResolver(
-		func(ctx context.Context, ip string) ([]string, error) {
-			return net.DefaultResolver.LookupAddr(ctx, ip)
-		},
-		10*time.Minute,
-		10000
-	)*/
 	store, err := stats.NewStore(context.Background(), dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize SQLite schema: %v", err)
@@ -100,13 +92,12 @@ func main() {
 		defer ticker.Stop()
 
 		prune := func() {
-			cutoff := time.Now().Add(-retention).Unix()
-			slog.Debug("Pruning expired stats", "cutoff", cutoff)
+			cutoff := time.Now().Add(-RETENTION).Unix()
 			if err := store.DeleteOlderThan(ctx, cutoff); err != nil {
 				slog.Error("Failed to delete expired stats", "error", err)
 				return
 			}
-			slog.Debug("Pruned expired stats", "cutoff", cutoff)
+			slog.Debug("Pruned expired stats", "cutoff", time.Unix(cutoff, 0).Format(time.RFC3339))
 		}
 
 		prune()
