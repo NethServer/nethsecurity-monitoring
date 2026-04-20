@@ -27,7 +27,7 @@ type Resolver struct {
 	misses     atomic.Int64
 }
 
-func NewResolver(lookup lookupAddress, cacheTTL time.Duration, maxEntries int) *Resolver {
+func New(lookup lookupAddress, cacheTTL time.Duration, maxEntries int) *Resolver {
 	return &Resolver{
 		entries:    make(map[string]*cacheEntry),
 		lookup:     lookup,
@@ -59,12 +59,6 @@ func (r *Resolver) Lookup(ctx context.Context, ip string) string {
 
 	// Add to cache (requires write lock)
 	r.mu.Lock()
-	// Double-check: another goroutine may have added it while we were looking up
-	if entry, ok := r.entries[ip]; ok && time.Now().Before(entry.expiresAt) {
-		entry.hit.Add(1)
-		r.mu.Unlock()
-		return entry.name
-	}
 
 	// If cache is full, prune expired entries first, then evict if still full
 	if len(r.entries) >= r.maxEntries {

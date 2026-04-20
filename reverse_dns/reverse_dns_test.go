@@ -18,7 +18,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return []string{resolutions[ip]}, nil
 		}
-		resolver := NewResolver(mockLookup, 10*time.Minute, 1000)
+		resolver := New(mockLookup, 10*time.Minute, 1000)
 
 		for ip, expected := range resolutions {
 			name := resolver.Lookup(context.Background(), ip)
@@ -32,7 +32,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return nil, errors.New("failed")
 		}
-		resolver := NewResolver(mockLookup, 10*time.Minute, 1000)
+		resolver := New(mockLookup, 10*time.Minute, 1000)
 		expected := "0.0.0.0"
 		name := resolver.Lookup(context.Background(), expected)
 		if name != expected {
@@ -47,7 +47,7 @@ func TestReverseDns(t *testing.T) {
 			counter++
 			return []string{nameExpected}, nil
 		}
-		resolver := NewResolver(mockLookup, 10*time.Minute, 1000)
+		resolver := New(mockLookup, 10*time.Minute, 1000)
 		for range 10 {
 			name := resolver.Lookup(context.Background(), "0.0.0.0")
 			if name != nameExpected {
@@ -64,7 +64,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return []string{"example.com"}, nil
 		}
-		resolver := NewResolver(mockLookup, 10*time.Minute, 1000)
+		resolver := New(mockLookup, 10*time.Minute, 1000)
 
 		resolver.Lookup(context.Background(), "0.0.0.0")
 		resolver.Lookup(context.Background(), "0.0.0.0")
@@ -87,7 +87,7 @@ func TestReverseDns(t *testing.T) {
 			atomic.AddInt32(&counter, 1)
 			return []string{"example.com"}, nil
 		}
-		resolver := NewResolver(mockLookup, 10*time.Minute, 1000)
+		resolver := New(mockLookup, 10*time.Minute, 1000)
 
 		const workers = 16
 		start := make(chan struct{})
@@ -126,7 +126,7 @@ func TestReverseDns(t *testing.T) {
 		}
 		// Use a negative TTL so entries are immediately expired
 		// Use maxEntries=2 to force pruning when adding a third entry
-		resolver := NewResolver(mockLookup, -1*time.Second, 2)
+		resolver := New(mockLookup, -1*time.Second, 2)
 		resolver.Lookup(context.Background(), "1.1.1.1")
 		if callCount != 1 {
 			t.Fatalf("expected 1 lookup, got %d", callCount)
@@ -159,7 +159,7 @@ func TestReverseDns(t *testing.T) {
 			return []string{"example.com"}, nil
 		}
 		// Use a far-future TTL so entries never expire
-		resolver := NewResolver(mockLookup, 1*time.Hour, 1000)
+		resolver := New(mockLookup, 1*time.Hour, 1000)
 		resolver.Lookup(context.Background(), "1.1.1.1")
 		resolver.Lookup(context.Background(), "2.2.2.2")
 		resolver.Lookup(context.Background(), "1.1.1.1")
@@ -178,7 +178,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return []string{"example.com"}, nil
 		}
-		resolver := NewResolver(mockLookup, 1*time.Hour, 3)
+		resolver := New(mockLookup, 1*time.Hour, 3)
 
 		// Add 3 entries (fill the cache)
 		resolver.Lookup(context.Background(), "1.1.1.1")
@@ -205,7 +205,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return []string{"example.com"}, nil
 		}
-		resolver := NewResolver(mockLookup, 1*time.Hour, 3)
+		resolver := New(mockLookup, 1*time.Hour, 3)
 
 		// Add 3 entries
 		resolver.Lookup(context.Background(), "1.1.1.1") // hit count: 1
@@ -238,7 +238,7 @@ func TestReverseDns(t *testing.T) {
 		mockLookup := func(ctx context.Context, ip string) ([]string, error) {
 			return []string{"example.com"}, nil
 		}
-		resolver := NewResolver(mockLookup, 1*time.Hour, 3)
+		resolver := New(mockLookup, 1*time.Hour, 3)
 
 		// Add 3 entries with same hit count but different TTLs
 		// Entry 1: expires in 1 hour
