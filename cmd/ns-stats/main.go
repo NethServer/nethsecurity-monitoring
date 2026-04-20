@@ -5,7 +5,6 @@ import (
 	"flag"
 	"log"
 	"log/slog"
-	"net"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -16,7 +15,6 @@ import (
 	airRecover "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/internal/logger"
-	"github.com/nethserver/nethsecurity-monitoring/reverse_dns"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 
@@ -52,14 +50,14 @@ func main() {
 	}
 	slog.SetLogLoggerLevel(logLevel)
 
-	cache := reverse_dns.NewResolver(
+	/*cache := reverse_dns.NewResolver(
 		func(ctx context.Context, ip string) ([]string, error) {
 			return net.DefaultResolver.LookupAddr(ctx, ip)
 		},
 		10*time.Minute,
-		10000,
-	)
-	store, err := stats.NewStore(context.Background(), dbPath, cache)
+		10000
+	)*/
+	store, err := stats.NewStore(context.Background(), dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize SQLite schema: %v", err)
 	}

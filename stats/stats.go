@@ -4,12 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/nethserver/nethsecurity-monitoring/reverse_dns"
 )
 
 type AggregatorPayload struct {
@@ -18,56 +15,67 @@ type AggregatorPayload struct {
 }
 
 type AggregatorEntry struct {
-	DetectedApplication     int    `json:"detected_application"`
-	DetectedApplicationName string `json:"detected_application_name"`
-	DetectedProtocol        int    `json:"detected_protocol"`
-	DetectedProtocolName    string `json:"detected_protocol_name"`
-	LocalIp                 string `json:"local_ip"`
-	OtherIp                 string `json:"other_ip"`
-	LocalBytes              int64  `json:"local_bytes"`
-	OtherBytes              int64  `json:"other_bytes"`
-	LocalOrigin             bool   `json:"local_origin"`
+	DetectedApplication     int      `json:"detected_application"`
+	DetectedApplicationName string   `json:"detected_application_name"`
+	DetectedProtocol        int      `json:"detected_protocol"`
+	DetectedProtocolName    string   `json:"detected_protocol_name"`
+	Digests                 []string `json:"digests"`
+	Interface               string   `json:"interface"`
+	IpProtocol              int      `json:"ip_protocol"`
+	IpVersion               int      `json:"ip_version"`
+	LocalBytes              int64    `json:"local_bytes"`
+	LocalIp                 string   `json:"local_ip"`
+	LocalMac                string   `json:"local_mac"`
+	LocalOrigin             bool     `json:"local_origin"`
+	OtherBytes              int64    `json:"other_bytes"`
+	OtherIp                 string   `json:"other_ip"`
+	OtherPort               int      `json:"other_port"`
+	OtherType               string   `json:"other_type"`
+	Packets                 int      `json:"packets"`
 }
 
 const initSchema = `
-CREATE TABLE IF NOT EXISTS hourly_traffic (
-	hour_bucket INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS aggregator_stats (
+	log_time_end INTEGER NOT NULL,
 	detected_application INTEGER NOT NULL,
 	detected_application_name TEXT NOT NULL,
 	detected_protocol INTEGER NOT NULL,
 	detected_protocol_name TEXT NOT NULL,
+	ip_protocol INTEGER NOT NULL,
+	ip_version INTEGER NOT NULL,
+	local_bytes INTEGER NOT NULL,
 	local_ip TEXT NOT NULL,
-	local_name TEXT NOT NULL,
-	other_ip TEXT NOT NULL,
-	other_name TEXT NOT NULL,
+	local_mac TEXT NOT NULL,
 	local_origin INTEGER NOT NULL,
-	local_bytes INTEGER NOT NULL DEFAULT 0,
-	other_bytes INTEGER NOT NULL DEFAULT 0,
+	other_bytes INTEGER NOT NULL,
+	other_ip TEXT NOT NULL,
+	other_port INTEGER NOT NULL,
+	other_type TEXT NOT NULL,
+	packets INTEGER NOT NULL,
 	PRIMARY KEY (
-		hour_bucket,
+		log_time_end,
 		detected_application,
-		detected_application_name,
 		detected_protocol,
-		detected_protocol_name,
+		ip_protocol,
+		ip_version,
+		local_origin,
 		local_ip,
+		local_mac,
 		other_ip,
-		local_origin
+	    other_type
 	)
 );
-
-CREATE INDEX IF NOT EXISTS idx_hourly_traffic_hour_bucket ON hourly_traffic (hour_bucket);
 `
 
 type Store struct {
-	db    *sql.DB
-	cache *reverse_dns.Resolver
+	db *sql.DB
 }
 
 type Saver interface {
 	Save(context.Context, AggregatorPayload) error
 }
 
-func NewStore(ctx context.Context, dbPath string, cache *reverse_dns.Resolver) (*Store, error) {
+func NewStore(ctx context.Context, dbPath string) (*Store, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
@@ -101,7 +109,7 @@ func NewStore(ctx context.Context, dbPath string, cache *reverse_dns.Resolver) (
 		return nil, fmt.Errorf("initialize stats schema: %w", err)
 	}
 
-	return &Store{db: db, cache: cache}, nil
+	return &Store{db: db}, nil
 }
 
 func (s *Store) Close() error {
@@ -113,8 +121,6 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Save(ctx context.Context, payload AggregatorPayload) error {
-	hourBucket := (payload.LogTimeEnd / 3600) * 3600
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin stats transaction: %w", err)
@@ -126,35 +132,24 @@ func (s *Store) Save(ctx context.Context, payload AggregatorPayload) error {
 	}()
 
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO hourly_traffic (
-	hour_bucket,
+INSERT INTO aggregator_stats (
+	log_time_end,
 	detected_application,
 	detected_application_name,
 	detected_protocol,
 	detected_protocol_name,
+    ip_protocol,
+    ip_version,                   
+	local_bytes,                 
 	local_ip,
-	local_name,
-	other_ip,
-	other_name,
+	local_mac,
 	local_origin,
-	local_bytes,
-	other_bytes
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(
-	hour_bucket,
-	detected_application,
-	detected_application_name,
-	detected_protocol,
-	detected_protocol_name,
-	local_ip,
+	other_bytes,
 	other_ip,
-	local_origin
-)
-DO UPDATE SET
-	local_name = excluded.local_name,
-	other_name = excluded.other_name,
-	local_bytes = local_bytes + excluded.local_bytes,
-	other_bytes = other_bytes + excluded.other_bytes
+	other_port,
+	other_type,
+	packets
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 	if err != nil {
 		return fmt.Errorf("prepare hourly traffic upsert: %w", err)
@@ -162,23 +157,24 @@ DO UPDATE SET
 	defer stmt.Close() //nolint:errcheck
 
 	for _, stat := range payload.Stats {
-		localName := s.cache.Lookup(ctx, stat.LocalIp)
-		otherName := s.cache.Lookup(ctx, stat.OtherIp)
-
 		_, err = stmt.ExecContext(
 			ctx,
-			hourBucket,
+			payload.LogTimeEnd,
 			stat.DetectedApplication,
 			stat.DetectedApplicationName,
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
-			stat.LocalIp,
-			localName,
-			stat.OtherIp,
-			otherName,
-			boolToInt(stat.LocalOrigin),
+			stat.IpProtocol,
+			stat.IpVersion,
 			stat.LocalBytes,
+			stat.LocalIp,
+			stat.LocalMac,
+			boolToInt(stat.LocalOrigin),
 			stat.OtherBytes,
+			stat.OtherIp,
+			stat.OtherPort,
+			stat.OtherType,
+			stat.Packets,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert hourly traffic: %w", err)
@@ -188,22 +184,13 @@ DO UPDATE SET
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit stats transaction: %w", err)
 	}
-
-	stats := s.cache.Stats()
-	slog.Debug(
-		"DNS cache stats",
-		"size", stats.Size,
-		"hits", stats.Hits,
-		"misses", stats.Misses,
-		"miss_rate", stats.MissRate,
-	)
 	return nil
 }
 
 func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	if _, err := s.db.ExecContext(
 		ctx,
-		`DELETE FROM hourly_traffic WHERE hour_bucket < ?`,
+		`DELETE FROM aggregator_stats WHERE log_time_end < ?`,
 		cutoff,
 	); err != nil {
 		return fmt.Errorf("delete expired traffic: %w", err)
