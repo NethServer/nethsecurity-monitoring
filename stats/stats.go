@@ -43,10 +43,10 @@ CREATE TABLE IF NOT EXISTS stats (
     other_name text,
 	bytes integer NOT NULL,
 	detected_application integer NOT NULL,
-	detected_application_name integer NOT NULL,
+	detected_application_name text NOT NULL,
 	detected_protocol integer NOT NULL,
-	detected_protocol_name integer NOT NULL,
-	PRIMARY KEY (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
+	detected_protocol_name text NOT NULL,
+    PRIMARY KEY (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
 );
 `
 
@@ -169,3 +169,69 @@ func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	return nil
 }
 
+func (s *Store) ListUnresolvedIPs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT DISTINCT ip
+FROM (
+	SELECT local_ip AS ip FROM stats WHERE local_name IS NULL
+	UNION
+	SELECT other_ip AS ip FROM stats WHERE other_name IS NULL
+)
+ORDER BY ip
+`)
+	if err != nil {
+		return nil, fmt.Errorf("list unresolved stats IPs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	ips := make([]string, 0)
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, fmt.Errorf("scan unresolved stats IP: %w", err)
+		}
+		ips = append(ips, ip)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unresolved stats IPs: %w", err)
+	}
+
+	return ips, nil
+}
+
+func (s *Store) ResolveIP(ctx context.Context, ip, name string) error {
+	if name == "" {
+		name = ip
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin stats resolution transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, `
+UPDATE stats SET local_name = ?
+WHERE local_ip = ? AND local_name IS NULL
+`, name, ip); err != nil {
+		return fmt.Errorf("update local host name: %w", err)
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+UPDATE stats SET other_name = ?
+WHERE other_ip = ? AND other_name IS NULL
+`, name, ip); err != nil {
+		return fmt.Errorf("update remote host name: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit stats resolution transaction: %w", err)
+	}
+
+	return nil
+}

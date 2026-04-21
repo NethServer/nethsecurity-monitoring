@@ -148,8 +148,9 @@ func (r *Resolver) Stats() CacheStats {
 	hits := r.hits.Load()
 	misses := r.misses.Load()
 	missRate := 0.0
-	if hits > 0 {
-		missRate = float64(misses) / float64(hits)
+	total := hits + misses
+	if total > 0 {
+		missRate = float64(misses) / float64(total)
 	}
 
 	return CacheStats{
