@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -155,13 +154,4 @@ func normalizeName(name string) string {
 		return "unknown"
 	}
 	return name
-}
-
-func SortedKeys(m map[string]int64) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
