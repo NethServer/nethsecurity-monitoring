@@ -38,7 +38,6 @@ const initSchema = `
 CREATE TABLE IF NOT EXISTS stats (
     hour_bucket integer NOT NULL,
     local_ip text NOT NULL,
-    local_name text,
     other_ip text NOT NULL,
     other_name text,
 	bytes integer NOT NULL,
@@ -171,13 +170,7 @@ func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 
 func (s *Store) ListUnresolvedIPs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT DISTINCT ip
-FROM (
-	SELECT local_ip AS ip FROM stats WHERE local_name IS NULL
-	UNION
-	SELECT other_ip AS ip FROM stats WHERE other_name IS NULL
-)
-ORDER BY ip
+SELECT DISTINCT other_ip AS ip FROM stats WHERE other_name IS NULL ORDER BY other_ip
 `)
 	if err != nil {
 		return nil, fmt.Errorf("list unresolved stats IPs: %w", err)
@@ -214,13 +207,6 @@ func (s *Store) ResolveIP(ctx context.Context, ip, name string) error {
 			_ = tx.Rollback()
 		}
 	}()
-
-	if _, err = tx.ExecContext(ctx, `
-UPDATE stats SET local_name = ?
-WHERE local_ip = ? AND local_name IS NULL
-`, name, ip); err != nil {
-		return fmt.Errorf("update local host name: %w", err)
-	}
 
 	if _, err = tx.ExecContext(ctx, `
 UPDATE stats SET other_name = ?

@@ -63,12 +63,12 @@ func (s *Store) BuildSummary(
 SELECT
 	detected_protocol_name,
 	detected_application_name,
-	COALESCE(local_name, local_ip),
+	local_ip,
 	COALESCE(other_name, other_ip),
 	SUM(bytes)
 FROM stats
 WHERE hour_bucket = ? AND local_ip = ?
-GROUP BY detected_protocol_name, detected_application_name, local_name, other_name, local_ip, other_ip
+GROUP BY detected_protocol_name, detected_application_name, other_name, local_ip, other_ip
 `, hourBucket, localIP)
 	if err != nil {
 		return nil, fmt.Errorf("build summary: %w", err)
