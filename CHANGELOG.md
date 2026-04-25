@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.2...v1.0.3) (2026-04-25)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/gofiber/fiber/v2 to v2.52.13 ([#18](https://github.com/NethServer/nethsecurity-monitoring/issues/18)) ([22a0ab0](https://github.com/NethServer/nethsecurity-monitoring/commit/22a0ab058853df5678669af52519ce4672b5eccc))
+
 ## [1.0.2](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.1...v1.0.2) (2026-03-24)
 
 
