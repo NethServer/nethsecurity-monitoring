@@ -20,8 +20,6 @@ import (
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 
-const RETENTION = 2 * time.Hour
-
 func main() {
 	// CLI setup
 	var addr string
@@ -31,12 +29,21 @@ func main() {
 	flag.StringVar(&dbPath, "db-path", ":memory:", "path to the SQLite database file")
 
 	var exportPath string
-	flag.StringVar(&exportPath, "export-path", "./exports", "path to write hourly json exports")
+	flag.StringVar(&exportPath, "export-path", "", "path to export hourly stats (required)")
 
 	var debugLevel string
 	flag.StringVar(&debugLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 
 	flag.Parse()
+
+	// Validate required flags
+	if exportPath == "" {
+		log.Fatalf("--export-path is required")
+	}
+
+	// Fixed retention and export window
+	retention := 3 * time.Hour
+	exportWindowHours := 2
 
 	// slog setup
 	var logLevel slog.Level
@@ -59,14 +66,6 @@ func main() {
 		log.Fatalf("Failed to initialize SQLite schema: %v", err)
 	}
 	defer store.Close() //nolint:errcheck
-
-	resolver := reverse_dns.New(func(ctx context.Context, ip string) ([]string, error) {
-		addrs, err := net.DefaultResolver.LookupAddr(ctx, ip)
-		if err != nil {
-			return nil, err
-		}
-		return addrs, nil
-	}, 5*time.Minute, 10000)
 
 	// Concurrent managers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -91,6 +90,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		slog.Info("Starting API server")
 		if err := server.Listen(addr); err != nil {
 			slog.Debug("API server stopped", "error", err)
 		}
@@ -105,7 +105,7 @@ func main() {
 		defer ticker.Stop()
 
 		prune := func() {
-			cutoff := time.Now().Add(-RETENTION).Unix()
+			cutoff := time.Now().Add(-retention).Unix()
 			if err := store.DeleteOlderThan(ctx, cutoff); err != nil {
 				slog.Error("Failed to delete expired stats", "error", err)
 				return
@@ -113,6 +113,7 @@ func main() {
 			slog.Debug("Pruned expired stats", "cutoff", time.Unix(cutoff, 0).Format(time.RFC3339))
 		}
 
+		slog.Info("Starting stats cleanup process")
 		prune()
 
 		for {
@@ -126,56 +127,8 @@ func main() {
 		}
 	}()
 
-	// Host resolver
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		resolve := func() {
-			duration := time.Now()
-			ips, err := store.ListUnresolvedIPs(ctx)
-			if err != nil {
-				slog.Error("Failed to list unresolved stats IPs", "error", err)
-				return
-			}
-
-			for _, ip := range ips {
-				name := resolver.Lookup(ctx, ip)
-				if err := store.ResolveIP(ctx, ip, name); err != nil {
-					slog.Error("Failed to resolve stats IP", "ip", ip, "error", err)
-				}
-			}
-			resolverStats := resolver.Stats()
-			slog.Debug(
-				"Resolved hostnames for stats",
-				"count",
-				len(ips),
-				"duration",
-				time.Since(duration).String(),
-				"cache_size",
-				resolverStats.Size,
-				"miss_rate",
-				resolverStats.MissRate,
-			)
-		}
-
-		resolve()
-
-		for {
-			select {
-			case <-ticker.C:
-				resolve()
-			case <-ctx.Done():
-				slog.Info("Stopping stats host resolver")
-				return
-			}
-		}
-	}()
-
 	// Exporter
+	exporter := stats.NewExporter(exportPath, exportWindowHours)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -184,54 +137,16 @@ func main() {
 		defer ticker.Stop()
 
 		export := func() {
-			duration := time.Now()
-			endHour := time.Now().Truncate(time.Hour).Unix()
-			startHour := endHour - int64((48 * time.Hour).Seconds())
-			targets, err := store.ListExportTargets(ctx, startHour, endHour)
+			timestamp := time.Now()
+			err := exporter.ExportAll(ctx, store)
 			if err != nil {
-				slog.Error("Failed to list export targets", "error", err)
+				slog.Error("Failed to export stats", "error", err)
 				return
 			}
-
-			for _, target := range targets {
-				summary, err := store.BuildSummary(ctx, target.HourBucket, target.LocalIP)
-				if err != nil {
-					slog.Error(
-						"Failed to build hourly summary",
-						"hour_bucket",
-						target.HourBucket,
-						"local_ip",
-						target.LocalIP,
-						"error",
-						err,
-					)
-					continue
-				}
-				if err := stats.WriteHourSummary(
-					exportPath,
-					time.Unix(target.HourBucket, 0),
-					target.LocalIP,
-					summary,
-				); err != nil {
-					slog.Error(
-						"Failed to write hourly summary",
-						"hour_bucket",
-						target.HourBucket,
-						"local_ip",
-						target.LocalIP,
-						"error",
-						err,
-					)
-				}
-			}
-			slog.Debug(
-				"Exported hourly summary",
-				"startHour", time.Unix(startHour, 0).Format(time.RFC3339),
-				"endHour", time.Unix(endHour, 0).Format(time.RFC3339),
-				"duration", time.Since(duration).String(),
-			)
+			slog.Debug("Exported stats successfully", "duration", time.Since(timestamp))
 		}
 
+		slog.Info("Starting exporter process")
 		export()
 
 		for {
@@ -239,7 +154,65 @@ func main() {
 			case <-ticker.C:
 				export()
 			case <-ctx.Done():
-				slog.Info("Stopping stats exporter")
+				slog.Info("Stopping exporter process")
+				return
+			}
+		}
+	}()
+
+	// IP Resolver (DNS reverse lookup with caching)
+	dnsResolver := reverse_dns.New(net.DefaultResolver.LookupAddr, 5*time.Minute, 10000)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		resolve := func() {
+			ips, err := store.QueryUnresolvedIPs(ctx)
+			if err != nil {
+				slog.Error("Failed to query unresolved IPs", "error", err)
+				return
+			}
+
+			slog.Debug("Resolving IPs", "count", len(ips))
+			for _, ip := range ips {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				hostname := dnsResolver.Lookup(ctx, ip)
+				if err := store.SaveResolvedHost(ctx, ip, hostname); err != nil {
+					slog.Error("Failed to save resolved host", "ip", ip, "error", err)
+				}
+			}
+
+			dnsStats := dnsResolver.Stats()
+			slog.Debug(
+				"IP resolver stats",
+				"cache_size",
+				dnsStats.Size,
+				"cache_hits",
+				dnsStats.Hits,
+				"cache_misses",
+				dnsStats.Misses,
+				"cache_miss_rate",
+				dnsStats.MissRate,
+			)
+		}
+
+		slog.Info("Starting IP resolver")
+		resolve()
+
+		for {
+			select {
+			case <-ticker.C:
+				resolve()
+			case <-ctx.Done():
+				slog.Info("Stopping IP resolver")
 				return
 			}
 		}

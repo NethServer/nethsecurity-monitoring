@@ -35,18 +35,53 @@ type AggregatorEntry struct {
 }
 
 const initSchema = `
-CREATE TABLE IF NOT EXISTS stats (
-    hour_bucket integer NOT NULL,
-    local_ip text NOT NULL,
-    other_ip text NOT NULL,
-    other_name text,
-	bytes integer NOT NULL,
-	detected_application integer NOT NULL,
-	detected_application_name text NOT NULL,
-	detected_protocol integer NOT NULL,
-	detected_protocol_name text NOT NULL,
-    PRIMARY KEY (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
+CREATE TABLE IF NOT EXISTS aggregator_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_time_end INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS aggregator_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL REFERENCES aggregator_batches(id) ON DELETE CASCADE,
+    detected_application INTEGER,
+    detected_application_name TEXT,
+    detected_protocol INTEGER,
+    detected_protocol_name TEXT,
+    interface TEXT,
+    ip_protocol INTEGER,
+    ip_version INTEGER,
+    local_bytes BIGINT,
+    local_ip VARCHAR,
+    local_mac VARCHAR,
+    local_origin BOOLEAN,
+    other_bytes BIGINT,
+    other_ip VARCHAR,
+    other_host TEXT,
+    other_port INTEGER,
+    other_type TEXT,
+    packets INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_stats_batch_id
+    ON aggregator_stats(batch_id);
+
+CREATE INDEX IF NOT EXISTS idx_stats_covering
+    ON aggregator_stats(
+        batch_id,
+        local_ip,
+        detected_protocol_name,
+        detected_application_name,
+        other_ip,
+        local_bytes,
+        other_bytes
+    );
+
+CREATE INDEX IF NOT EXISTS idx_stats_other_ip_unresolved
+    ON aggregator_stats(other_ip)
+    WHERE other_host IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_batches_log_time_end
+    ON aggregator_batches(log_time_end);
 `
 
 type Store struct {
@@ -55,6 +90,14 @@ type Store struct {
 
 type Saver interface {
 	Save(context.Context, AggregatorPayload) error
+}
+
+type HourRow struct {
+	LocalIP         string
+	ProtocolName    string
+	ApplicationName string
+	Host            string
+	TotalBytes      int64
 }
 
 func NewStore(ctx context.Context, dbPath string) (*Store, error) {
@@ -113,40 +156,71 @@ func (s *Store) Save(ctx context.Context, payload AggregatorPayload) error {
 		}
 	}()
 
+	// Insert batch record
+	result, err := tx.ExecContext(ctx, `
+INSERT INTO aggregator_batches (log_time_end)
+VALUES (?)
+`, payload.LogTimeEnd)
+	if err != nil {
+		return fmt.Errorf("insert batch record: %w", err)
+	}
+
+	batchID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get batch id: %w", err)
+	}
+
+	// Prepare statement for stats entries
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO stats (
-   hour_bucket,
-   local_ip,
-   other_ip,
-   bytes,
-   detected_application,
-   detected_application_name,
-   detected_protocol,
-   detected_protocol_name
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (hour_bucket, local_ip, other_ip, detected_application, detected_protocol)
-DO UPDATE SET bytes = bytes + excluded.bytes
+INSERT INTO aggregator_stats (
+    batch_id,
+    detected_application,
+    detected_application_name,
+    detected_protocol,
+    detected_protocol_name,
+    interface,
+    ip_protocol,
+    ip_version,
+    local_bytes,
+    local_ip,
+    local_mac,
+    local_origin,
+    other_bytes,
+    other_ip,
+    other_port,
+    other_type,
+    packets
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 	if err != nil {
-		return fmt.Errorf("prepare hourly traffic upsert: %w", err)
+		return fmt.Errorf("prepare stats insert: %w", err)
 	}
 	defer stmt.Close() //nolint:errcheck
 
-	hourBucket := (payload.LogTimeEnd / 3600) * 3600
+	// Insert all entries from the payload
 	for _, stat := range payload.Stats {
 		_, err = stmt.ExecContext(
 			ctx,
-			hourBucket,
-			stat.LocalIp,
-			stat.OtherIp,
-			stat.LocalBytes+stat.OtherBytes,
+			batchID,
 			stat.DetectedApplication,
 			stat.DetectedApplicationName,
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
+			stat.Interface,
+			stat.IpProtocol,
+			stat.IpVersion,
+			stat.LocalBytes,
+			stat.LocalIp,
+			stat.LocalMac,
+			stat.LocalOrigin,
+			stat.OtherBytes,
+			stat.OtherIp,
+			stat.OtherPort,
+			stat.OtherType,
+			stat.Packets,
 		)
 		if err != nil {
-			return fmt.Errorf("upsert hourly traffic: %w", err)
+			return fmt.Errorf("insert stats entry: %w", err)
 		}
 	}
 
@@ -159,65 +233,124 @@ DO UPDATE SET bytes = bytes + excluded.bytes
 func (s *Store) DeleteOlderThan(ctx context.Context, cutoff int64) error {
 	if _, err := s.db.ExecContext(
 		ctx,
-		`DELETE FROM stats WHERE hour_bucket < ?`,
+		`DELETE FROM aggregator_batches WHERE log_time_end < ?`,
 		cutoff,
 	); err != nil {
-		return fmt.Errorf("delete expired traffic: %w", err)
+		return fmt.Errorf("delete expired batches: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Store) ListUnresolvedIPs(ctx context.Context) ([]string, error) {
+func (s *Store) QueryableHours(ctx context.Context, limit int) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT DISTINCT other_ip AS ip FROM stats WHERE other_name IS NULL ORDER BY other_ip
-`)
+SELECT DISTINCT (log_time_end / 3600) * 3600 as hour_epoch
+FROM aggregator_batches
+ORDER BY hour_epoch DESC
+LIMIT ?
+	`, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list unresolved stats IPs: %w", err)
+		return nil, fmt.Errorf("query hours: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()
 
-	ips := make([]string, 0)
+	var hours []int64
+	for rows.Next() {
+		var hourEpoch int64
+		if err := rows.Scan(&hourEpoch); err != nil {
+			return nil, fmt.Errorf("scan hour epoch: %w", err)
+		}
+		hours = append(hours, hourEpoch)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hours: %w", err)
+	}
+
+	// Sort ascending since we selected DESC
+	for i, j := 0, len(hours)-1; i < j; i, j = i+1, j-1 {
+		hours[i], hours[j] = hours[j], hours[i]
+	}
+
+	return hours, nil
+}
+
+func (s *Store) QueryHour(ctx context.Context, hourStart, hourEnd int64) ([]HourRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT
+    s.local_ip,
+    s.detected_protocol_name,
+    s.detected_application_name,
+    COALESCE(s.other_host, s.other_ip) as host,
+    SUM(s.local_bytes + s.other_bytes) as total_bytes
+FROM aggregator_stats s
+JOIN aggregator_batches b ON s.batch_id = b.id
+WHERE b.log_time_end >= ? AND b.log_time_end < ?
+GROUP BY s.local_ip, s.detected_protocol_name, s.detected_application_name, COALESCE(s.other_host, s.other_ip)
+ORDER BY s.local_ip, s.detected_protocol_name, s.detected_application_name, COALESCE(s.other_host, s.other_ip)
+	`, hourStart, hourEnd)
+	if err != nil {
+		return nil, fmt.Errorf("query hour %d-%d: %w", hourStart, hourEnd, err)
+	}
+	defer rows.Close()
+
+	var result []HourRow
+	for rows.Next() {
+		var row HourRow
+		if err := rows.Scan(
+			&row.LocalIP,
+			&row.ProtocolName,
+			&row.ApplicationName,
+			&row.Host,
+			&row.TotalBytes,
+		); err != nil {
+			return nil, fmt.Errorf("scan hour row: %w", err)
+		}
+		result = append(result, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hour rows: %w", err)
+	}
+
+	return result, nil
+}
+
+func (s *Store) QueryUnresolvedIPs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT DISTINCT other_ip
+FROM aggregator_stats
+WHERE other_host IS NULL
+ORDER BY other_ip
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query unresolved IPs: %w", err)
+	}
+	defer rows.Close()
+
+	var ips []string
 	for rows.Next() {
 		var ip string
 		if err := rows.Scan(&ip); err != nil {
-			return nil, fmt.Errorf("scan unresolved stats IP: %w", err)
+			return nil, fmt.Errorf("scan IP: %w", err)
 		}
 		ips = append(ips, ip)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate unresolved stats IPs: %w", err)
+		return nil, fmt.Errorf("iterate IPs: %w", err)
 	}
 
 	return ips, nil
 }
 
-func (s *Store) ResolveIP(ctx context.Context, ip, name string) error {
-	if name == "" {
-		name = ip
+func (s *Store) SaveResolvedHost(ctx context.Context, ip, hostname string) error {
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE aggregator_stats
+SET other_host = ?
+WHERE other_ip = ? AND other_host IS NULL
+	`, hostname, ip); err != nil {
+		return fmt.Errorf("save resolved host for %q: %w", ip, err)
 	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin stats resolution transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
-	if _, err = tx.ExecContext(ctx, `
-UPDATE stats SET other_name = ?
-WHERE other_ip = ? AND other_name IS NULL
-`, name, ip); err != nil {
-		return fmt.Errorf("update remote host name: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit stats resolution transaction: %w", err)
-	}
-
 	return nil
 }

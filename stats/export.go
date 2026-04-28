@@ -4,154 +4,153 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
-type Summary struct {
+// HourReport represents the aggregated statistics for a single hour and local IP.
+type HourReport struct {
 	Total       int64            `json:"total"`
 	Protocol    map[string]int64 `json:"protocol"`
 	Application map[string]int64 `json:"application"`
 	Host        map[string]int64 `json:"host"`
 }
 
-type ExportTarget struct {
-	HourBucket int64
-	LocalIP    string
-}
-
-func (s *Store) ListExportTargets(
-	ctx context.Context,
-	startHour, endHour int64,
-) ([]ExportTarget, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT DISTINCT hour_bucket, local_ip
-FROM stats
-WHERE hour_bucket >= ? AND hour_bucket <= ?
-ORDER BY hour_bucket, local_ip
-`, startHour, endHour)
-	if err != nil {
-		return nil, fmt.Errorf("list export targets: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	targets := make([]ExportTarget, 0)
-	for rows.Next() {
-		var target ExportTarget
-		if err := rows.Scan(&target.HourBucket, &target.LocalIP); err != nil {
-			return nil, fmt.Errorf("scan export target: %w", err)
-		}
-		targets = append(targets, target)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate export targets: %w", err)
-	}
-
-	return targets, nil
-}
-
-func (s *Store) BuildSummary(
-	ctx context.Context,
-	hourBucket int64,
-	localIP string,
-) (*Summary, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT
-	detected_protocol_name,
-	detected_application_name,
-	local_ip,
-	COALESCE(other_name, other_ip),
-	SUM(bytes)
-FROM stats
-WHERE hour_bucket = ? AND local_ip = ?
-GROUP BY detected_protocol_name, detected_application_name, other_name, local_ip, other_ip
-`, hourBucket, localIP)
-	if err != nil {
-		return nil, fmt.Errorf("build summary: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	summary := &Summary{
+// BuildReport aggregates HourRow entries into a HourReport.
+func BuildReport(rows []HourRow) HourReport {
+	report := HourReport{
 		Protocol:    make(map[string]int64),
 		Application: make(map[string]int64),
 		Host:        make(map[string]int64),
 	}
 
-	for rows.Next() {
-		var protocol string
-		var application string
-		var localName string
-		var remoteName string
-		var bytes int64
-		if err := rows.Scan(&protocol, &application, &localName, &remoteName, &bytes); err != nil {
-			return nil, fmt.Errorf("scan summary row: %w", err)
+	for _, row := range rows {
+		report.Total += row.TotalBytes
+
+		// Aggregate by protocol
+		if row.ProtocolName != "" {
+			report.Protocol[row.ProtocolName] += row.TotalBytes
 		}
 
-		protocol = normalizeName(protocol)
-		application = normalizeName(application)
-		localName = normalizeName(localName)
-		remoteName = normalizeName(remoteName)
+		// Aggregate by application
+		if row.ApplicationName != "" {
+			report.Application[row.ApplicationName] += row.TotalBytes
+		}
 
-		summary.Total += bytes
-		summary.Protocol[protocol] += bytes
-		summary.Application[application] += bytes
-		summary.Host[localName] += bytes
-		summary.Host[remoteName] += bytes
+		// Aggregate by host (resolved hostname or IP)
+		if row.Host != "" {
+			report.Host[row.Host] += row.TotalBytes
+		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate summary rows: %w", err)
-	}
-
-	return summary, nil
+	return report
 }
 
-func WriteHourSummary(root string, ts time.Time, localIP string, summary *Summary) error {
-	path := filepath.Join(
-		root,
-		fmt.Sprintf("%04d", ts.Year()),
-		fmt.Sprintf("%02d", int(ts.Month())),
-		fmt.Sprintf("%02d", ts.Day()),
-		localIP,
-		fmt.Sprintf("%02d.json", ts.Hour()),
-	)
+// Exporter exports hourly statistics to JSON files.
+type Exporter struct {
+	outputDir   string
+	windowHours int
+}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create export directory: %w", err)
+// NewExporter creates a new Exporter with the given output directory and window size in hours.
+func NewExporter(outputDir string, windowHours int) *Exporter {
+	return &Exporter{
+		outputDir:   outputDir,
+		windowHours: windowHours,
 	}
+}
 
-	tmp := path + ".tmp"
-	file, err := os.Create(tmp)
+// ExportAll exports the last N hours from the store to JSON files.
+func (e *Exporter) ExportAll(ctx context.Context, store *Store) error {
+	startTime := time.Now()
+	slog.Debug("Starting stats export", "time", startTime.Format(time.RFC3339))
+
+	hours, err := store.QueryableHours(ctx, e.windowHours)
 	if err != nil {
-		return fmt.Errorf("create export file: %w", err)
+		return fmt.Errorf("query hours: %w", err)
 	}
 
-	enc := json.NewEncoder(file)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(summary); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("encode export json: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close export file: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("move export file: %w", err)
+	if len(hours) == 0 {
+		slog.Debug("No hours to export")
+		return nil
 	}
 
+	for _, hourEpoch := range hours {
+		hourEnd := hourEpoch + 3600
+		rows, err := store.QueryHour(ctx, hourEpoch, hourEnd)
+		if err != nil {
+			return fmt.Errorf("query hour %d: %w", hourEpoch, err)
+		}
+
+		if len(rows) == 0 {
+			continue
+		}
+
+		// Group rows by local_ip
+		reportsByIP := make(map[string][]HourRow)
+		for _, row := range rows {
+			reportsByIP[row.LocalIP] = append(reportsByIP[row.LocalIP], row)
+		}
+
+		// Write report for each local_ip
+		for localIP, ipRows := range reportsByIP {
+			report := BuildReport(ipRows)
+			if err := e.writeReport(hourEpoch, localIP, report); err != nil {
+				return fmt.Errorf("write report for %s at %d: %w", localIP, hourEpoch, err)
+			}
+		}
+	}
+
+	duration := time.Since(startTime)
+	slog.Debug("Completed stats export", "hours_exported", len(hours), "duration", duration)
 	return nil
 }
 
-func normalizeName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "unknown"
+// writeReport writes a HourReport to a JSON file at the appropriate path.
+// The path follows the pattern: {outputDir}/{year}/{month:02d}/{day:02d}/{local_ip}/{hour:02d}.json
+func (e *Exporter) writeReport(hourEpoch int64, localIP string, report HourReport) error {
+	t := time.Unix(hourEpoch, 0).UTC()
+	year := t.Year()
+	month := int(t.Month())
+	day := t.Day()
+	hour := t.Hour()
+
+	// Construct directory path
+	dirPath := filepath.Join(
+		e.outputDir,
+		fmt.Sprintf("%d", year),
+		fmt.Sprintf("%02d", month),
+		fmt.Sprintf("%02d", day),
+		localIP,
+	)
+
+	// Create directories if they don't exist
+	if err := os.MkdirAll(dirPath, 0o755); err != nil {
+		return fmt.Errorf("create directory %s: %w", dirPath, err)
 	}
-	return name
+
+	// File path
+	filePath := filepath.Join(dirPath, fmt.Sprintf("%02d.json", hour))
+
+	// Marshal report to JSON
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal report: %w", err)
+	}
+
+	// Write to temporary file first (atomic write)
+	tmpFile := filePath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0o644); err != nil {
+		return fmt.Errorf("write temp file %s: %w", tmpFile, err)
+	}
+
+	// Atomically rename temp file to final path
+	if err := os.Rename(tmpFile, filePath); err != nil {
+		_ = os.Remove(tmpFile) // best effort cleanup
+		return fmt.Errorf("rename temp file to %s: %w", filePath, err)
+	}
+
+	return nil
 }
