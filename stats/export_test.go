@@ -6,7 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func init() {
+	// Set timezone to UTC for consistent test paths
+	os.Setenv("TZ", "UTC")
+	time.Local = time.UTC
+}
 
 func TestBuildReport(t *testing.T) {
 	t.Run("aggregates bytes correctly across protocols, applications, and IPs", func(t *testing.T) {

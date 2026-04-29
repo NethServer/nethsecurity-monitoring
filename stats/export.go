@@ -110,8 +110,9 @@ func (e *Exporter) ExportAll(ctx context.Context, store *Store) error {
 
 // writeReport writes a HourReport to a JSON file at the appropriate path.
 // The path follows the pattern: {outputDir}/{year}/{month:02d}/{day:02d}/{local_ip}/{hour:02d}.json
+// Timestamps are converted to the system's local timezone.
 func (e *Exporter) writeReport(hourEpoch int64, localIP string, report HourReport) error {
-	t := time.Unix(hourEpoch, 0).UTC()
+	t := time.Unix(hourEpoch, 0).Local()
 	year := t.Year()
 	month := int(t.Month())
 	day := t.Day()

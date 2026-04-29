@@ -26,6 +26,69 @@ func setupStore(t *testing.T) (*Store, *sql.DB) {
 	return store, db
 }
 
+func TestStripAppNameID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "old format with numeric prefix",
+			input:    "10910.netify.google-chat",
+			expected: "netify.google-chat",
+		},
+		{
+			name:     "new format without prefix",
+			input:    "netify.google-chat",
+			expected: "netify.google-chat",
+		},
+		{
+			name:     "simple name without dots",
+			input:    "YouTube",
+			expected: "YouTube",
+		},
+		{
+			name:     "numeric-only prefix with multiple dots",
+			input:    "123.example.com.service",
+			expected: "example.com.service",
+		},
+		{
+			name:     "single digit prefix",
+			input:    "5.app",
+			expected: "app",
+		},
+		{
+			name:     "leading dot (malformed, should pass through)",
+			input:    ".malformed",
+			expected: ".malformed",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only digits (no dot)",
+			input:    "12345",
+			expected: "12345",
+		},
+		{
+			name:     "non-digit prefix before dot",
+			input:    "abc123.app",
+			expected: "abc123.app",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripAppNameID(tt.input)
+			if result != tt.expected {
+				t.Errorf("stripAppNameID(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestStoreSave(t *testing.T) {
 	t.Run("stores raw stats entries with batch tracking", func(t *testing.T) {
 		store, db := setupStore(t)
@@ -141,6 +204,107 @@ func TestStoreSave(t *testing.T) {
 		}
 		if otherBytes != 200 {
 			t.Fatalf("expected other_bytes 200, got %d", otherBytes)
+		}
+	})
+
+	t.Run("normalizes detected_application_name by stripping numeric prefix", func(t *testing.T) {
+		store, db := setupStore(t)
+		defer store.Close() //nolint:errcheck
+		defer db.Close()    //nolint:errcheck
+
+		payload := AggregatorPayload{
+			LogTimeEnd: 1800,
+			Stats: []AggregatorEntry{
+				{
+					DetectedApplication:     10910,
+					DetectedApplicationName: "10910.netify.google-chat",
+					DetectedProtocol:        196,
+					DetectedProtocolName:    "HTTP/S",
+					IpProtocol:              6,
+					IpVersion:               4,
+					LocalBytes:              100,
+					LocalIp:                 "10.0.0.1",
+					LocalMac:                "XX:XX.XX:XX:XX:XX",
+					LocalOrigin:             true,
+					OtherBytes:              200,
+					OtherIp:                 "10.0.0.2",
+					OtherPort:               80,
+					OtherType:               "remote",
+				},
+				{
+					DetectedApplication:     20001,
+					DetectedApplicationName: "123.example.app",
+					DetectedProtocol:        200,
+					DetectedProtocolName:    "proto2",
+					IpProtocol:              0,
+					IpVersion:               4,
+					LocalBytes:              50,
+					LocalIp:                 "10.0.0.3",
+					LocalMac:                "YY:YY.YY:YY:YY:YY",
+					LocalOrigin:             false,
+					OtherBytes:              75,
+					OtherIp:                 "10.0.0.4",
+					OtherPort:               80,
+					OtherType:               "unknown",
+				},
+				{
+					DetectedApplication:     30001,
+					DetectedApplicationName: "YouTube",
+					DetectedProtocol:        300,
+					DetectedProtocolName:    "proto3",
+					IpProtocol:              6,
+					IpVersion:               4,
+					LocalBytes:              30,
+					LocalIp:                 "10.0.0.5",
+					LocalMac:                "ZZ:ZZ.ZZ:ZZ:ZZ:ZZ",
+					LocalOrigin:             true,
+					OtherBytes:              60,
+					OtherIp:                 "10.0.0.6",
+					OtherPort:               443,
+					OtherType:               "remote",
+				},
+			},
+		}
+
+		if err := store.Save(context.Background(), payload); err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify the first entry was normalized from "10910.netify.google-chat" to "netify.google-chat"
+		var appName string
+		err := db.QueryRow(
+			`SELECT detected_application_name FROM aggregator_stats WHERE detected_application = ?`,
+			10910,
+		).Scan(&appName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if appName != "netify.google-chat" {
+			t.Fatalf("expected 'netify.google-chat', got %q", appName)
+		}
+
+		// Verify the second entry was normalized from "123.example.app" to "example.app"
+		err = db.QueryRow(
+			`SELECT detected_application_name FROM aggregator_stats WHERE detected_application = ?`,
+			20001,
+		).Scan(&appName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if appName != "example.app" {
+			t.Fatalf("expected 'example.app', got %q", appName)
+		}
+
+		// Verify the third entry (no numeric prefix) was stored unchanged as "YouTube"
+		err = db.QueryRow(
+			`SELECT detected_application_name FROM aggregator_stats WHERE detected_application = ?`,
+			30001,
+		).Scan(&appName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if appName != "YouTube" {
+			t.Fatalf("expected 'YouTube', got %q", appName)
 		}
 	})
 }

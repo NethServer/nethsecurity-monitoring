@@ -145,6 +145,36 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// stripAppNameID removes a leading "<digits>." prefix from the application name
+// to normalize both old-format ("10910.netify.google-chat") and
+// new-format ("netify.google-chat") values sent from upstream.
+// If no leading digits followed by "." are found, the name is returned unchanged.
+func stripAppNameID(name string) string {
+	for i, c := range name {
+		if c == '.' {
+			// Found a dot, check if everything before it is digits
+			if i > 0 && isAllDigits(name[:i]) {
+				return name[i+1:]
+			}
+			break
+		}
+	}
+	return name
+}
+
+// isAllDigits checks if a string contains only digit characters.
+func isAllDigits(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) Save(ctx context.Context, payload AggregatorPayload) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -203,7 +233,7 @@ INSERT INTO aggregator_stats (
 			ctx,
 			batchID,
 			stat.DetectedApplication,
-			stat.DetectedApplicationName,
+			stripAppNameID(stat.DetectedApplicationName),
 			stat.DetectedProtocol,
 			stat.DetectedProtocolName,
 			stat.Interface,
