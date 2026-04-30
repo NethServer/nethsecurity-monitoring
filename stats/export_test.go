@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,9 @@ import (
 
 func init() {
 	// Set timezone to UTC for consistent test paths
-	os.Setenv("TZ", "UTC")
+	if err := os.Setenv("TZ", "UTC"); err != nil {
+		panic(fmt.Sprintf("failed to set timezone: %v", err))
+	}
 	time.Local = time.UTC
 }
 

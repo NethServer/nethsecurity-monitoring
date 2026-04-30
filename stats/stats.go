@@ -282,7 +282,7 @@ LIMIT ?
 	if err != nil {
 		return nil, fmt.Errorf("query hours: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var hours []int64
 	for rows.Next() {
@@ -322,7 +322,7 @@ ORDER BY s.local_ip, s.detected_protocol_name, s.detected_application_name, COAL
 	if err != nil {
 		return nil, fmt.Errorf("query hour %d-%d: %w", hourStart, hourEnd, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var result []HourRow
 	for rows.Next() {
@@ -356,7 +356,7 @@ ORDER BY other_ip
 	if err != nil {
 		return nil, fmt.Errorf("query unresolved IPs: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var ips []string
 	for rows.Next() {
