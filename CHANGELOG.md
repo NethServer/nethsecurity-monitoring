@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.2...v1.1.0) (2026-04-30)
+
+
+### Features
+
+* added ns-stats binary ([994f92f](https://github.com/NethServer/nethsecurity-monitoring/commit/994f92f595e76c3c673ffe2c52035888b5b19cfa))
+
+
+### Bug Fixes
+
+* avoiding restart on socket reload ([3631e60](https://github.com/NethServer/nethsecurity-monitoring/commit/3631e60850ed628f46d269825b04504c661daf96))
+* **deps:** update module github.com/gofiber/fiber/v2 to v2.52.13 ([#18](https://github.com/NethServer/nethsecurity-monitoring/issues/18)) ([22a0ab0](https://github.com/NethServer/nethsecurity-monitoring/commit/22a0ab058853df5678669af52519ce4672b5eccc))
+
 ## [1.0.2](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.1...v1.0.2) (2026-03-24)
 
 
