@@ -1,11 +1,11 @@
 module github.com/nethserver/nethsecurity-monitoring
 
-go 1.23.12
+go 1.25.0
 
 require (
 	github.com/go-playground/assert/v2 v2.2.0
 	github.com/gofiber/fiber/v2 v2.52.13
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.20.0
 	modernc.org/sqlite v1.38.2
 )
 
