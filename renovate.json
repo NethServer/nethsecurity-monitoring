@@ -7,13 +7,11 @@
   ],
   "packageRules": [
     {
-      "description": "Golang will determined by OpenWRT, this update is merely to keep the project up to date.",
+      "description": "Go will determined by OpenWRT, this update is merely to keep the project up to date.",
       "matchPackageNames": [
-        "golang"
+        "go"
       ],
-      "schedule": [
-        "* * 1 * *"
-      ]
+      "allowedVersions": "<=1.23.12"
     }
   ]
 }
