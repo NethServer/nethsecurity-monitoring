@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 type lookupAddress func(context.Context, string) ([]string, error)
@@ -25,6 +27,7 @@ type Resolver struct {
 	entries    map[string]*cacheEntry
 	hits       atomic.Int64
 	misses     atomic.Int64
+	sf         singleflight.Group // Deduplicates concurrent lookups for the same IP
 }
 
 func New(lookup lookupAddress, cacheTTL time.Duration, maxEntries int) *Resolver {
@@ -50,34 +53,55 @@ func (r *Resolver) Lookup(ctx context.Context, ip string) string {
 	r.mu.RUnlock()
 
 	// Cache miss or expired
-	timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-	name := ip
-	if names, err := r.lookup(timeoutCtx, ip); err == nil && len(names) > 0 {
-		name = strings.TrimSuffix(names[0], ".")
-	}
-
-	// Add to cache (requires write lock)
-	r.mu.Lock()
-
-	// If cache is full, prune expired entries first, then evict if still full
-	if len(r.entries) >= r.maxEntries {
-		r.pruneExpired()
-		if len(r.entries) >= r.maxEntries {
-			r.evictOne()
+	// Use singleflight to deduplicate concurrent lookups for the same IP.
+	// If multiple goroutines reach here simultaneously, only one will call the lookup function;
+	// the rest will wait and receive the result from the first one.
+	result, _, _ := r.sf.Do(ip, func() (interface{}, error) {
+		// Double-check the cache under write lock in case another goroutine
+		// populated it while we were waiting for the singleflight lock.
+		r.mu.Lock()
+		if entry, ok := r.entries[ip]; ok && time.Now().Before(entry.expiresAt) {
+			name := entry.name
+			entry.hit.Add(1)
+			r.mu.Unlock()
+			return name, nil
 		}
-	}
+		r.mu.Unlock()
 
-	entry := &cacheEntry{
-		ip:        ip,
-		name:      name,
-		expiresAt: time.Now().Add(r.cacheTTL),
-	}
-	entry.hit.Store(1)
-	r.entries[ip] = entry
+		// Perform the actual DNS lookup
+		timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		defer cancel()
+		name := ip
+		if names, err := r.lookup(timeoutCtx, ip); err == nil && len(names) > 0 {
+			name = strings.TrimSuffix(names[0], ".")
+		}
 
-	r.mu.Unlock()
-	return name
+		// Add to cache (requires write lock)
+		r.mu.Lock()
+
+		// If cache is full, prune expired entries first, then evict if still full
+		if len(r.entries) >= r.maxEntries {
+			r.pruneExpired()
+			if len(r.entries) >= r.maxEntries {
+				r.evictOne()
+			}
+		}
+
+		entry := &cacheEntry{
+			ip:        ip,
+			name:      name,
+			expiresAt: time.Now().Add(r.cacheTTL),
+		}
+		entry.hit.Store(1)
+		r.entries[ip] = entry
+
+		r.mu.Unlock()
+		return name, nil
+	})
+
+	// singleflight returns the result from the first goroutine's call.
+	// Cast it back to string (it's safe because we always return string).
+	return result.(string)
 }
 
 // PruneExpired removes entries that have exceeded cacheTTL.

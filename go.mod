@@ -5,6 +5,7 @@ go 1.23.12
 require (
 	github.com/go-playground/assert/v2 v2.2.0
 	github.com/gofiber/fiber/v2 v2.52.13
+	golang.org/x/sync v0.15.0
 	modernc.org/sqlite v1.38.2
 )
 
