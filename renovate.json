@@ -5,13 +5,7 @@
     ":prHourlyLimitNone",
     ":automergeMinor"
   ],
-  "packageRules": [
-    {
-      "description": "Go will determined by OpenWRT, this update is merely to keep the project up to date.",
-      "matchPackageNames": [
-        "go"
-      ],
-      "allowedVersions": "<=1.23.12"
-    }
-  ]
+  "constraints": {
+    "go": "1.23"
+  }
 }
