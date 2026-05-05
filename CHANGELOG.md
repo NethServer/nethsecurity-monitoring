@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.1](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.0...v1.1.1) (2026-05-05)
+
+
+### Bug Fixes
+
+* concurrent resolution ([679e6ad](https://github.com/NethServer/nethsecurity-monitoring/commit/679e6adf743ff754d194c8732a735e515bf54b0e))
+* creating directories if missing ([601fdbd](https://github.com/NethServer/nethsecurity-monitoring/commit/601fdbdb4dd0fba53067a4f0143dedbe11ec3287))
+* **deps:** update module modernc.org/sqlite to v1.50.0 ([#20](https://github.com/NethServer/nethsecurity-monitoring/issues/20)) ([62db32a](https://github.com/NethServer/nethsecurity-monitoring/commit/62db32ade8b4d9131f85bee97a74059afc0f2d2a))
+
+
+### Reverts
+
+* "fix(deps): update module modernc.org/sqlite to v1.50.0 ([#20](https://github.com/NethServer/nethsecurity-monitoring/issues/20))" ([eee7067](https://github.com/NethServer/nethsecurity-monitoring/commit/eee70672409a509eb0331113d691f1da8c6c7b4b))
+
 ## [1.1.0](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.0.2...v1.1.0) (2026-04-30)
 
 
