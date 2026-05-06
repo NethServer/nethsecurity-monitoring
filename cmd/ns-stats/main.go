@@ -92,7 +92,8 @@ func main() {
 		defer wg.Done()
 		slog.Info("Starting API server")
 		if err := server.Listen(addr); err != nil {
-			slog.Debug("API server stopped", "error", err)
+			slog.Error("Failed to start API server", "error", err)
+			stop()
 		}
 	}()
 
