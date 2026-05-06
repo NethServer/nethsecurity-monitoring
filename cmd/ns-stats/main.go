@@ -6,9 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
-	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -41,19 +39,6 @@ func main() {
 	// Validate required flags
 	if exportPath == "" {
 		log.Fatalf("--export-path is required")
-	}
-
-	// Create directories if needed
-	if dbPath != ":memory:" {
-		dbDir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(dbDir, 0o755); err != nil {
-			log.Fatalf("Failed to create database directory: %v", err)
-		}
-	}
-
-	exportDir := filepath.Dir(exportPath)
-	if err := os.MkdirAll(exportDir, 0o755); err != nil {
-		log.Fatalf("Failed to create export directory: %v", err)
 	}
 
 	// Fixed retention and export window
