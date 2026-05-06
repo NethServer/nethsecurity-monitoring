@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.2...v1.1.3) (2026-05-06)
+
+
+### Bug Fixes
+
+* terminating context if server fails ([bf972b5](https://github.com/NethServer/nethsecurity-monitoring/commit/bf972b5805469042491ad85de73b5224aacf848e))
+
 ## [1.1.2](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.1...v1.1.2) (2026-05-06)
 
 
