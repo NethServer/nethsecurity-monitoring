@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.1...v1.1.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* removed directory creation ([08e0aa2](https://github.com/NethServer/nethsecurity-monitoring/commit/08e0aa237bcaec61f80ea05e27ea0da22e9da323))
+
 ## [1.1.1](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.0...v1.1.1) (2026-05-05)
 
 
