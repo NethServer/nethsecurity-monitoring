@@ -12,6 +12,8 @@ const (
 	FlowTypeStats       = "flow_stats"
 )
 
+var ErrUnsupportedFlowType = errors.New("unsupported flow type")
+
 type FlowEvent struct {
 	Type      string `json:"type"`
 	Interface string `json:"interface,omitempty"`
@@ -236,7 +238,7 @@ func (f *FlowEvent) UnmarshalJSON(data []byte) error {
 		}
 		f.Flow = flow
 	default:
-		return fmt.Errorf("flow type %q not supported", tmp.Type)
+		return fmt.Errorf("%w: %q", ErrUnsupportedFlowType, tmp.Type)
 	}
 	return nil
 }

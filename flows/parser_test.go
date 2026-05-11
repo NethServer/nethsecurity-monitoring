@@ -416,12 +416,12 @@ func TestParsingFlowErrors(t *testing.T) {
 		{
 			name:          "type missing",
 			input:         `{"flow": {}}`,
-			errorContains: `flow type "" not supported`,
+			errorContains: `unsupported flow type`,
 		},
 		{
 			name:          "type not supported",
 			input:         `{"type": "hello", "flow": {}}`,
-			errorContains: `flow type "hello" not supported`,
+			errorContains: `unsupported flow type`,
 		},
 		{
 			name:          "flow malformed",
