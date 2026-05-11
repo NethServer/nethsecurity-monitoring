@@ -15,6 +15,10 @@ type FlowAccessor interface {
 	GetEvents() map[string]FlowEvent
 }
 
+type FlowIngestor interface {
+	Process(event FlowEvent)
+}
+
 func NewFlowProcessor() *FlowProcessor {
 	return &FlowProcessor{
 		eventMap: make(map[string]FlowEvent),
