@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 
@@ -17,9 +17,9 @@ func NewStatsApi(saver stats.Saver) *StatsApi {
 }
 
 func (s *StatsApi) Setup(app *fiber.App) {
-	app.Post("/stats", func(c *fiber.Ctx) error {
+	app.Post("/stats", func(c fiber.Ctx) error {
 		var payload stats.AggregatorPayload
-		if err := c.BodyParser(&payload); err != nil {
+		if err := c.Bind().Body(&payload); err != nil {
 			slog.Error("invalid stats payload", "error", err)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "invalid stats payload: " + err.Error(),

@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
-	airRecover "github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v3"
+	fiberlogger "github.com/gofiber/fiber/v3/middleware/logger"
+	airRecover "github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/internal/logger"
 	"github.com/nethserver/nethsecurity-monitoring/reverse_dns"
@@ -75,14 +75,13 @@ func main() {
 
 	// API Server
 	server := fiber.New(fiber.Config{
-		AppName:               "ns-stats",
-		DisableStartupMessage: true,
+		AppName: "ns-stats",
 	})
 	if logLevel == slog.LevelDebug {
 		server.Use(fiberlogger.New(fiberlogger.Config{
 			Format:     "${method} ${path} ${status} ${latency}\n",
 			TimeFormat: "15:04:05",
-			Output:     &logger.FiberWriter{},
+			Stream:     &logger.FiberWriter{},
 		}))
 	}
 	server.Use(airRecover.New())
@@ -91,7 +90,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		slog.Info("Starting API server")
-		if err := server.Listen(addr); err != nil {
+		if err := server.Listen(addr, fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
 			slog.Error("Failed to start API server", "error", err)
 			stop()
 		}

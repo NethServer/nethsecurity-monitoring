@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/assert/v2"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/nethserver/nethsecurity-monitoring/stats"
 )
 

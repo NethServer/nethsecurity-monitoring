@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/nethserver/nethsecurity-monitoring/api"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
 	"github.com/nethserver/nethsecurity-monitoring/internal/logger"
@@ -58,7 +58,7 @@ func main() {
 
 	processor := flows.NewFlowProcessor()
 
-	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	app := fiber.New()
 	api.NewFlowApi(processor, processor).Setup(app)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -72,7 +72,7 @@ func main() {
 		defer wg.Done()
 		addr := "127.0.0.1:" + apiPort
 		slog.Info("API server listening", "addr", addr)
-		if err := app.Listen(addr); err != nil {
+		if err := app.Listen(addr, fiber.ListenConfig{DisableStartupMessage: true}); err != nil {
 			slog.Error("Failed to start API server", "error", err)
 			stop()
 		}

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
 )
 
@@ -22,7 +22,7 @@ func NewFlowApi(accessor flows.FlowAccessor, ingestor flows.FlowIngestor) *FlowA
 }
 
 func (f *FlowApi) Setup(app *fiber.App) {
-	app.Get("/flows", func(c *fiber.Ctx) error {
+	app.Get("/flows", func(c fiber.Ctx) error {
 		eventsMap := f.accessor.GetEvents()
 		eventsSlice := make([]flows.FlowEvent, 0, len(eventsMap))
 		for _, ev := range eventsMap {
@@ -35,9 +35,9 @@ func (f *FlowApi) Setup(app *fiber.App) {
 		})
 	})
 
-	app.Post("/flows", func(c *fiber.Ctx) error {
+	app.Post("/flows", func(c fiber.Ctx) error {
 		var event flows.FlowEvent
-		if err := c.BodyParser(&event); err != nil {
+		if err := c.Bind().Body(&event); err != nil {
 			// Check if error is due to unsupported flow type
 			if errors.Is(err, flows.ErrUnsupportedFlowType) {
 				slog.Debug("Ignoring flow event with unsupported type", "error", err)
