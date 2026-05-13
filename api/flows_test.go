@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/assert/v2"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/nethserver/nethsecurity-monitoring/flows"
 )
 
@@ -79,7 +79,7 @@ func TestFlows(t *testing.T) {
 		}
 		ingestor := &MockFlowIngestor{}
 		app := setupApi(t, accessor, ingestor)
-		req, _ := http.NewRequest("GET", "/flows", nil)
+		req := httptest.NewRequest(http.MethodGet, "/flows", nil)
 		res, err := app.Test(req)
 		if err != nil {
 			t.Fatal(err)
