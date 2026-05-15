@@ -34,7 +34,18 @@ func (fp *FlowProcessor) Process(event FlowEvent) {
 		fp.eventMap[f.Digest] = event
 	case FlowPurge:
 		slog.Debug("Flow purge", "digest", f.Digest)
-		delete(fp.eventMap, f.Digest)
+		flow, ok := fp.eventMap[f.Digest]
+		if !ok {
+			slog.Debug("Flow purge received for unknown flow", "digest", f.Digest)
+			return
+		}
+		switch toUpdateFlow := flow.Flow.(type) {
+		case FlowComplete:
+			toUpdateFlow.TotalBytes = f.TotalBytes
+			toUpdateFlow.TotalPackets = f.TotalPackets
+			flow.Flow = toUpdateFlow
+			fp.eventMap[f.Digest] = flow
+		}
 	case FlowStats:
 		slog.Debug("Flow stats received", "type", event.Type, "digest", f.Digest)
 		flow, ok := fp.eventMap[f.Digest]
