@@ -118,7 +118,7 @@ func TestFlowsProcessor(t *testing.T) {
 		}{
 			{flowComplete1, 1},
 			{flowComplete2, 2},
-			{flowPurge, 1},
+			{flowPurge, 2},
 		}
 
 		flowProcessor := NewFlowProcessor()
@@ -196,39 +196,53 @@ func TestFlowsProcessor(t *testing.T) {
 		)
 	})
 
-	t.Run("prunes flows correctly", func(t *testing.T) {
-		flowComplete1 := createFlowCompleteEvent(t)
-		flowComplete2 := createFlowCompleteEvent(t)
-		pruneFlow1 := FlowEvent{
+	t.Run("handles purge correctly", func(t *testing.T) {
+		completedFlow := createFlowCompleteEvent(t)
+		minRate := 1000.0
+		maxRate := 10000.0
+		purgeStats := Stats{
+			LocalBytes:   rand.Int64N(1000),
+			LocalPackets: rand.IntN(1000),
+			LocalRate:    minRate + rand.Float64()*(maxRate-minRate),
+			OtherBytes:   rand.Int64N(1000),
+			OtherPackets: rand.IntN(1000),
+			OtherRate:    minRate + rand.Float64()*(maxRate-minRate),
+			TotalBytes:   rand.Int64N(1000),
+			TotalPackets: rand.IntN(1000),
+		}
+		purgeEvent := FlowEvent{
 			Type: FlowTypePurge,
 			Flow: FlowPurge{
-				FlowBase: flowComplete1.Flow.(FlowComplete).FlowBase,
+				FlowBase:   completedFlow.Flow.(FlowComplete).FlowBase,
+				Stats:      purgeStats,
+				LastSeenAt: rand.Int64N(time.Now().Unix()),
 			},
 		}
-		pruneFlow2 := FlowEvent{
-			Type: FlowTypePurge,
-			Flow: FlowPurge{
-				FlowBase: flowComplete2.Flow.(FlowComplete).FlowBase,
-			},
-		}
+
 		flowProcessor := NewFlowProcessor()
-		flowProcessor.Process(flowComplete1)
-		flowProcessor.Process(flowComplete2)
-		flowProcessor.Process(pruneFlow1)
+		flowProcessor.Process(completedFlow)
+		flowProcessor.Process(purgeEvent)
+
 		events := flowProcessor.GetEvents()
 		if len(events) != 1 {
 			t.Errorf("Expected 1 event, got %d", len(events))
 		}
-		flowProcessor.Process(pruneFlow2)
-		events = flowProcessor.GetEvents()
-		if len(events) != 0 {
-			t.Errorf("Expected 0 events, got %d", len(events))
+
+		storedFlow := events[completedFlow.Flow.(FlowComplete).Digest]
+		assertEqual(t, storedFlow.Flow.(FlowComplete).TotalBytes, purgeStats.TotalBytes, "TotalBytes")
+		assertEqual(t, storedFlow.Flow.(FlowComplete).TotalPackets, purgeStats.TotalPackets, "TotalPackets")
+
+		// Purge of an unknown flow should be a no-op
+		unknownPurge := FlowEvent{
+			Type: FlowTypePurge,
+			Flow: FlowPurge{
+				FlowBase: FlowBase{Digest: randomDigest(t)},
+			},
 		}
-		// Prune again to ensure no panic on the unknown flow
-		flowProcessor.Process(pruneFlow1)
+		flowProcessor.Process(unknownPurge)
 		events = flowProcessor.GetEvents()
-		if len(events) != 0 {
-			t.Errorf("Expected 0 events, got %d", len(events))
+		if len(events) != 1 {
+			t.Errorf("Expected 1 event after unknown purge, got %d", len(events))
 		}
 	})
 
