@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.3...v1.2.0) (2026-05-22)
+
+
+### Code Refactoring
+
+* ns-flows now uses http sinks instead of sockets ([5392eb5](https://github.com/NethServer/nethsecurity-monitoring/commit/5392eb56e53417f353f4ed6e2e6b9a426d0ca2fd))
+
 ## [1.1.3](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.2...v1.1.3) (2026-05-06)
 
 
