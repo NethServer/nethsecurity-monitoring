@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.2.0...v1.2.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* **flows:** using purge correctly ([7d629d0](https://github.com/NethServer/nethsecurity-monitoring/commit/7d629d0b323234e6b9fac82b9b0236353bff6eac))
+
 ## [1.2.0](https://github.com/NethServer/nethsecurity-monitoring/compare/v1.1.3...v1.2.0) (2026-05-22)
 
 
