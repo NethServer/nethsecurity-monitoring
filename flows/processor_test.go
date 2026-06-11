@@ -229,8 +229,18 @@ func TestFlowsProcessor(t *testing.T) {
 		}
 
 		storedFlow := events[completedFlow.Flow.(FlowComplete).Digest]
-		assertEqual(t, storedFlow.Flow.(FlowComplete).TotalBytes, purgeStats.TotalBytes, "TotalBytes")
-		assertEqual(t, storedFlow.Flow.(FlowComplete).TotalPackets, purgeStats.TotalPackets, "TotalPackets")
+		assertEqual(
+			t,
+			storedFlow.Flow.(FlowComplete).TotalBytes,
+			purgeStats.TotalBytes,
+			"TotalBytes",
+		)
+		assertEqual(
+			t,
+			storedFlow.Flow.(FlowComplete).TotalPackets,
+			purgeStats.TotalPackets,
+			"TotalPackets",
+		)
 
 		// Purge of an unknown flow should be a no-op
 		unknownPurge := FlowEvent{
