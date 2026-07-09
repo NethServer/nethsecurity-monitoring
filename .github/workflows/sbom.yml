@@ -16,7 +16,7 @@ jobs:
     name: Update dependency graph
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate sarif
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'release'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@v0.36.0
         with:
